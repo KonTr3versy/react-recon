@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import stat
 from pathlib import Path
@@ -40,6 +41,9 @@ def test_kali_installer_dry_run_is_non_mutating_and_pinned() -> None:
     assert "apt-get install" in result.stdout
     assert "subfinder@v2.16.0" in result.stdout
     assert "httpx@v1.10.0" in result.stdout
+    assert "uv 0.12.7 release archive" in result.stdout
+    assert "verify archive SHA-256" in result.stdout
+    assert "astral.sh/uv/install.sh" not in result.stdout
     assert "uv sync --extra test" in result.stdout
     assert "--extra openai" not in result.stdout
 
@@ -48,6 +52,87 @@ def test_kali_installer_rejects_unknown_provider() -> None:
     result = run_installer("--provider", "unknown")
     assert result.returncode != 0
     assert "unsupported provider" in result.stderr
+
+
+def test_kali_installer_accepts_matching_sha256(tmp_path: Path) -> None:
+    artifact = tmp_path / "uv-release.tar.gz"
+    artifact.write_bytes(b"known release bytes")
+    expected = hashlib.sha256(artifact.read_bytes()).hexdigest()
+
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1"; verify_sha256 "$2" "$3"', "bash", str(INSTALLER), str(artifact), expected],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_kali_installer_rejects_mismatched_sha256(tmp_path: Path) -> None:
+    artifact = tmp_path / "uv-release.tar.gz"
+    artifact.write_bytes(b"tampered release bytes")
+
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1"; verify_sha256 "$2" "$3"', "bash", str(INSTALLER), str(artifact), "0" * 64],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "SHA-256 verification failed" in result.stderr
+
+
+def test_kali_installer_ignores_path_shadowed_sha256sum(tmp_path: Path) -> None:
+    artifact = tmp_path / "uv-release.tar.gz"
+    artifact.write_bytes(b"tampered release bytes")
+    shim_dir = tmp_path / "bin"
+    shim_dir.mkdir()
+    shim = shim_dir / "sha256sum"
+    shim.write_text("#!/bin/sh\nprintf '%064d  %s\\n' 0 \"$2\"\n")
+    shim.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; PATH="$2:$PATH"; verify_sha256 "$3" "$4"',
+            "bash",
+            str(INSTALLER),
+            str(shim_dir),
+            str(artifact),
+            "0" * 64,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "SHA-256 verification failed" in result.stderr
+
+
+def test_kali_installer_rejects_unknown_uv_architecture() -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; select_uv_release mips64',
+            "bash",
+            str(INSTALLER),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "unsupported architecture" in result.stderr
 
 
 def test_kali_installer_rejects_configuration_without_provider() -> None:

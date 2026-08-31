@@ -5,6 +5,9 @@ set -Eeuo pipefail
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly INSTALL_BIN_DIR="${HOME}/.local/bin"
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly UV_VERSION="0.12.7"
+readonly UV_X86_64_SHA256="788f18abea7c5f55d6216e4f5613fd89d4d59b631efeec117b2b07fe72f1da21"
+readonly UV_AARCH64_SHA256="66393193038dd7eb108abd7a218d9cec04ac70ab98242b0720fa94de19223b7c"
 
 PROVIDER="openai"
 DRY_RUN=false
@@ -21,7 +24,7 @@ Options:
   --provider VALUE  Model SDK to install: openai, anthropic, both, or none
                     (default: openai)
   --dry-run         Print the planned commands without changing the system
-  --force           Reinstall the pinned Go reconnaissance binaries
+  --force           Reinstall pinned uv and Go reconnaissance binaries
   --configure       Interactively create a protected .env for LLM analysis
   -h, --help        Show this help text
 
@@ -49,6 +52,58 @@ run() {
   "$@"
 }
 
+verify_sha256() {
+  local file="$1"
+  local expected="$2"
+  local actual checksum_output
+
+  if [[ -x /usr/bin/sha256sum ]]; then
+    checksum_output="$(/usr/bin/sha256sum -- "${file}")" || die "could not calculate SHA-256 for ${file}"
+  elif [[ -x /usr/bin/shasum ]]; then
+    # macOS uses shasum for local fixture validation; Kali supplies
+    # /usr/bin/sha256sum through the explicitly installed coreutils package.
+    checksum_output="$(/usr/bin/shasum -a 256 -- "${file}")" || die "could not calculate SHA-256 for ${file}"
+  else
+    die "a trusted system SHA-256 utility is required to verify the uv release"
+  fi
+  actual="${checksum_output%% *}"
+  [[ "${actual}" == "${expected}" ]] || die "SHA-256 verification failed for ${file}"
+}
+
+select_uv_release() {
+  case "$1" in
+    x86_64|amd64) printf '%s %s\n' "x86_64-unknown-linux-gnu" "${UV_X86_64_SHA256}" ;;
+    aarch64|arm64) printf '%s %s\n' "aarch64-unknown-linux-gnu" "${UV_AARCH64_SHA256}" ;;
+    *) die "unsupported architecture for pinned uv release: $1" ;;
+  esac
+}
+
+install_pinned_uv() (
+  local architecture release target expected_sha256 asset url temporary_dir archive
+
+  architecture="$(/usr/bin/uname -m)"
+  release="$(select_uv_release "${architecture}")" || exit 1
+  read -r target expected_sha256 <<<"${release}"
+
+  asset="uv-${target}.tar.gz"
+  url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${asset}"
+  temporary_dir="$(/usr/bin/mktemp -d)"
+  archive="${temporary_dir}/${asset}"
+
+  cleanup_uv_download() {
+    /bin/rm -f -- "${archive}" "${temporary_dir}/uv-${target}/uv" "${temporary_dir}/uv-${target}/uvx"
+    /bin/rmdir -- "${temporary_dir}/uv-${target}" "${temporary_dir}" 2>/dev/null || true
+  }
+  trap cleanup_uv_download EXIT
+
+  /usr/bin/curl -LsSf "${url}" -o "${archive}"
+  verify_sha256 "${archive}" "${expected_sha256}"
+  /usr/bin/tar -xzf "${archive}" -C "${temporary_dir}" "uv-${target}/uv" "uv-${target}/uvx"
+  /usr/bin/install -m 0755 "${temporary_dir}/uv-${target}/uv" "${INSTALL_BIN_DIR}/uv"
+  /usr/bin/install -m 0755 "${temporary_dir}/uv-${target}/uvx" "${INSTALL_BIN_DIR}/uvx"
+)
+
+main() {
 while (($#)); do
   case "$1" in
     --provider)
@@ -102,7 +157,7 @@ fi
 
 printf 'Installing Kali prerequisites...\n'
 run sudo apt-get update
-run sudo apt-get install -y ca-certificates curl git golang-go nmap
+run sudo apt-get install -y ca-certificates coreutils curl git golang-go nmap tar
 
 run mkdir -p "${INSTALL_BIN_DIR}"
 export PATH="${INSTALL_BIN_DIR}:${PATH}"
@@ -110,13 +165,11 @@ export GOBIN="${INSTALL_BIN_DIR}"
 
 if [[ "${DRY_RUN}" == true ]] || ! command -v uv >/dev/null 2>&1 || [[ "${FORCE}" == true ]]; then
   if [[ "${DRY_RUN}" == true ]]; then
-    printf '+ curl -LsSf https://astral.sh/uv/install.sh -o TEMP_FILE\n'
-    printf '+ env UV_INSTALL_DIR=%q sh TEMP_FILE\n' "${INSTALL_BIN_DIR}"
+    printf '+ download uv %s release archive for x86_64 or aarch64 Linux\n' "${UV_VERSION}"
+    printf '+ verify archive SHA-256 against pinned architecture digest\n'
+    printf '+ install verified uv and uvx into %q\n' "${INSTALL_BIN_DIR}"
   else
-    uv_installer="$(mktemp)"
-    trap 'rm -f "${uv_installer}"' EXIT
-    curl -LsSf https://astral.sh/uv/install.sh -o "${uv_installer}"
-    env UV_INSTALL_DIR="${INSTALL_BIN_DIR}" sh "${uv_installer}"
+    install_pinned_uv
   fi
 else
   printf 'Using existing uv: %s\n' "$(command -v uv)"
@@ -181,3 +234,8 @@ Ensure this line is present in your shell profile before opening a new shell:
 Collection works without an API key. If analysis was configured, load its
 settings in each new shell with: set -a; source .env; set +a
 EOF
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

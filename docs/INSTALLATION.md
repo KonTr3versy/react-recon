@@ -34,8 +34,10 @@ planned commands without changing the system:
 The script must be run as a normal user. It uses `sudo` only for `apt`, places
 Go and uv binaries in `~/.local/bin`, and does not configure Docker, Linux
 capabilities, or shell profiles. API-key configuration occurs only with
-`--configure`. Use `--force` only when you intend to reinstall the validated
-Go-tool versions.
+`--configure`. Use `--force` only when you intend to reinstall pinned uv and
+the validated Go-tool versions. The bootstrap pins uv `0.12.7` and verifies the official
+architecture-specific SHA-256 digest before installing `uv` or `uvx`; an
+unknown architecture or digest mismatch stops installation.
 
 ## 1. Install system prerequisites
 
