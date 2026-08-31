@@ -1,0 +1,35 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+react-recon.example.env
+
+# Assessment state and evidence. Never commit client or target data.
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+/evidence/
+/reports/
+/outputs/
+/work/
+
+# Python and test artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Package builds
+/build/
+/dist/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp

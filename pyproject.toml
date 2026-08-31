@@ -1,0 +1,37 @@
+[project]
+name = "react-recon"
+version = "0.1.0"
+description = "A bounded ReAct reconnaissance agent for authorized assessments."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+keywords = ["reconnaissance", "pentest", "security", "llm", "projectdiscovery"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai>=2.0.0"]
+anthropic = ["anthropic>=1.0.0"]
+all-models = ["openai>=2.0.0", "anthropic>=1.0.0"]
+test = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["react_recon*"]
+
+[project.scripts]
+react-recon = "react_recon.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

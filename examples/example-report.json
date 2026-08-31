@@ -1,0 +1,519 @@
+{
+  "analysis": {
+    "created_at": "2026-08-30T01:10:27.080862+00:00",
+    "error": null,
+    "id": "analysis-3a801621e938",
+    "input": {
+      "fixture": true,
+      "target_profiles": [
+        {
+          "candidate_sources": [
+            "crtsh_search",
+            "discover_subdomains"
+          ],
+          "deterministic_priority": "P3",
+          "dns": {
+            "a": [
+              "192.0.2.10"
+            ]
+          },
+          "evidence_ids": [
+            "evidence-10be206e125c",
+            "evidence-3aebdfeecd74",
+            "evidence-7c4e694301b3",
+            "evidence-9f813d79d8c0",
+            "evidence-d0625b792ff2"
+          ],
+          "fact_refs": [
+            {
+              "evidence_ids": [
+                "evidence-d0625b792ff2"
+              ],
+              "fact_id": "fact-fbaadadc9947",
+              "observation_ids": [
+                "obs-fbaadadc9947"
+              ],
+              "statement": "HTTP endpoint https://portal.example.com returned status 302"
+            },
+            {
+              "evidence_ids": [
+                "evidence-3aebdfeecd74"
+              ],
+              "fact_id": "fact-d2e9d6aca382",
+              "observation_ids": [
+                "obs-d2e9d6aca382"
+              ],
+              "statement": "DNS A record: 192.0.2.10"
+            },
+            {
+              "evidence_ids": [
+                "evidence-9f813d79d8c0"
+              ],
+              "fact_id": "fact-e4f4d70fa143",
+              "observation_ids": [
+                "obs-e4f4d70fa143"
+              ],
+              "statement": "Passively discovered hostname via discover_subdomains"
+            },
+            {
+              "evidence_ids": [
+                "evidence-10be206e125c"
+              ],
+              "fact_id": "fact-455a24320ea8",
+              "observation_ids": [
+                "obs-455a24320ea8"
+              ],
+              "statement": "Passively discovered hostname via crtsh_search"
+            }
+          ],
+          "host": "portal.example.com",
+          "http_probe_failures": [],
+          "http_services": [
+            {
+              "evidence_id": "evidence-d0625b792ff2",
+              "location": "/login",
+              "observation_id": "obs-fbaadadc9947",
+              "port": "443",
+              "status_code": 302,
+              "tech": [
+                "Example Gateway"
+              ],
+              "url": "https://portal.example.com"
+            }
+          ],
+          "internal_score": 10,
+          "observation_ids": [
+            "obs-455a24320ea8",
+            "obs-585a77ad1eb1",
+            "obs-d2e9d6aca382",
+            "obs-e4f4d70fa143",
+            "obs-fbaadadc9947"
+          ],
+          "open_ports": [],
+          "service_verified": true,
+          "services": [],
+          "signals": [
+            {
+              "code": "information_surface",
+              "evidence_ids": [
+                "evidence-10be206e125c",
+                "evidence-3aebdfeecd74",
+                "evidence-7c4e694301b3",
+                "evidence-9f813d79d8c0",
+                "evidence-d0625b792ff2"
+              ],
+              "label": "Information-rich application surface",
+              "observation_ids": [
+                "obs-455a24320ea8",
+                "obs-585a77ad1eb1",
+                "obs-d2e9d6aca382",
+                "obs-e4f4d70fa143",
+                "obs-fbaadadc9947"
+              ],
+              "reason": "Naming or metadata suggests documentation, support, API, or portal content.",
+              "weight": 10
+            }
+          ],
+          "url_count": 1,
+          "url_extensions": {},
+          "url_observation_ids": [
+            "obs-585a77ad1eb1"
+          ],
+          "url_samples": [
+            "/login"
+          ],
+          "verified": true
+        }
+      ]
+    },
+    "input_digest": "50c491b96ccc5b191ef1f92ee0335f95439abe486d85b1eddad77c9b583032e2",
+    "model": "fixture-model",
+    "output": {
+      "collection_gaps": [
+        "No active port or service enumeration was performed."
+      ],
+      "cross_asset_patterns": [],
+      "information_opportunities": [],
+      "priority_targets": [
+        {
+          "caveats": [
+            "Synthetic example; no target interaction occurred."
+          ],
+          "confidence": "high",
+          "host": "portal.example.com",
+          "interesting_exposure": "Verified HTTPS portal with a login redirect.",
+          "next_steps": [
+            "Review the authentication flow and certificate relationships manually."
+          ],
+          "observed_facts": [
+            {
+              "evidence_ids": [
+                "evidence-d0625b792ff2"
+              ],
+              "fact_id": "fact-fbaadadc9947",
+              "observation_ids": [
+                "obs-fbaadadc9947"
+              ],
+              "statement": "HTTP endpoint https://portal.example.com returned status 302"
+            }
+          ],
+          "pentester_objective": "Characterize authentication behavior and exposed metadata.",
+          "priority": "P1",
+          "rank": 1,
+          "related_hosts": [],
+          "why_interesting": "It is a confirmed external authentication boundary."
+        }
+      ],
+      "run_assessment": "One verified external portal warrants focused manual characterization."
+    },
+    "profiles": [
+      {
+        "candidate_sources": [
+          "crtsh_search",
+          "discover_subdomains"
+        ],
+        "deterministic_priority": "P3",
+        "dns": {
+          "a": [
+            "192.0.2.10"
+          ]
+        },
+        "evidence_ids": [
+          "evidence-10be206e125c",
+          "evidence-3aebdfeecd74",
+          "evidence-7c4e694301b3",
+          "evidence-9f813d79d8c0",
+          "evidence-d0625b792ff2"
+        ],
+        "fact_refs": [
+          {
+            "evidence_ids": [
+              "evidence-d0625b792ff2"
+            ],
+            "fact_id": "fact-fbaadadc9947",
+            "observation_ids": [
+              "obs-fbaadadc9947"
+            ],
+            "statement": "HTTP endpoint https://portal.example.com returned status 302"
+          },
+          {
+            "evidence_ids": [
+              "evidence-3aebdfeecd74"
+            ],
+            "fact_id": "fact-d2e9d6aca382",
+            "observation_ids": [
+              "obs-d2e9d6aca382"
+            ],
+            "statement": "DNS A record: 192.0.2.10"
+          },
+          {
+            "evidence_ids": [
+              "evidence-9f813d79d8c0"
+            ],
+            "fact_id": "fact-e4f4d70fa143",
+            "observation_ids": [
+              "obs-e4f4d70fa143"
+            ],
+            "statement": "Passively discovered hostname via discover_subdomains"
+          },
+          {
+            "evidence_ids": [
+              "evidence-10be206e125c"
+            ],
+            "fact_id": "fact-455a24320ea8",
+            "observation_ids": [
+              "obs-455a24320ea8"
+            ],
+            "statement": "Passively discovered hostname via crtsh_search"
+          }
+        ],
+        "host": "portal.example.com",
+        "http_probe_failures": [],
+        "http_services": [
+          {
+            "evidence_id": "evidence-d0625b792ff2",
+            "location": "/login",
+            "observation_id": "obs-fbaadadc9947",
+            "port": "443",
+            "status_code": 302,
+            "tech": [
+              "Example Gateway"
+            ],
+            "url": "https://portal.example.com"
+          }
+        ],
+        "internal_score": 10,
+        "observation_ids": [
+          "obs-455a24320ea8",
+          "obs-585a77ad1eb1",
+          "obs-d2e9d6aca382",
+          "obs-e4f4d70fa143",
+          "obs-fbaadadc9947"
+        ],
+        "open_ports": [],
+        "service_verified": true,
+        "services": [],
+        "signals": [
+          {
+            "code": "information_surface",
+            "evidence_ids": [
+              "evidence-10be206e125c",
+              "evidence-3aebdfeecd74",
+              "evidence-7c4e694301b3",
+              "evidence-9f813d79d8c0",
+              "evidence-d0625b792ff2"
+            ],
+            "label": "Information-rich application surface",
+            "observation_ids": [
+              "obs-455a24320ea8",
+              "obs-585a77ad1eb1",
+              "obs-d2e9d6aca382",
+              "obs-e4f4d70fa143",
+              "obs-fbaadadc9947"
+            ],
+            "reason": "Naming or metadata suggests documentation, support, API, or portal content.",
+            "weight": 10
+          }
+        ],
+        "url_count": 1,
+        "url_extensions": {},
+        "url_observation_ids": [
+          "obs-585a77ad1eb1"
+        ],
+        "url_samples": [
+          "/login"
+        ],
+        "verified": true
+      }
+    ],
+    "prompt_version": "example-v1",
+    "provider": "fixture",
+    "run_id": "run-7192eaab76c5",
+    "status": "completed",
+    "updated_at": "2026-08-30T01:10:27.081127+00:00"
+  },
+  "assets": [
+    {
+      "created_at": "2026-08-30T01:10:27.077229+00:00",
+      "host": "portal.example.com",
+      "id": "asset-845cd441205c",
+      "in_scope": 1,
+      "run_id": "run-7192eaab76c5"
+    }
+  ],
+  "coverage": {
+    "asset_count": 1,
+    "baseline": {
+      "analysis_ready": true,
+      "baseline_attempted": true,
+      "baseline_successful": true,
+      "gaps": [],
+      "metrics": {
+        "discovered_hosts": 1,
+        "dns_resolved_hosts": 1,
+        "fingerprinted_service_count": 0,
+        "hosts_with_open_ports": 0,
+        "http_responding_hosts": 1,
+        "open_port_count": 0
+      },
+      "steps": [
+        {
+          "attempted_target_count": null,
+          "attempts": 1,
+          "expected_target_count": null,
+          "missing_targets": [],
+          "state": "success",
+          "tool": "crtsh_search"
+        },
+        {
+          "attempted_target_count": null,
+          "attempts": 1,
+          "expected_target_count": null,
+          "missing_targets": [],
+          "state": "success",
+          "tool": "discover_subdomains"
+        },
+        {
+          "attempted_target_count": null,
+          "attempts": 1,
+          "expected_target_count": null,
+          "missing_targets": [],
+          "state": "success",
+          "tool": "retrieve_passive_urls"
+        },
+        {
+          "attempted_target_count": 1,
+          "attempts": 1,
+          "expected_target_count": 1,
+          "missing_targets": [],
+          "state": "success",
+          "tool": "resolve_dns"
+        },
+        {
+          "attempted_target_count": 1,
+          "attempts": 1,
+          "expected_target_count": 1,
+          "missing_targets": [],
+          "state": "success",
+          "tool": "probe_http"
+        }
+      ]
+    },
+    "execution_count": 5,
+    "observation_count": 5
+  },
+  "executions": [
+    {
+      "command": "",
+      "finished_at": "2026-08-30T01:10:27.076965+00:00",
+      "id": "evidence-10be206e125c",
+      "raw_output_path": "examples/sample-evidence/run-7192eaab76c5/evidence-10be206e125c.jsonl",
+      "return_code": null,
+      "run_id": "run-7192eaab76c5",
+      "runner": "host",
+      "started_at": "2026-08-30T01:10:27.076963+00:00",
+      "status": "success",
+      "stderr": "",
+      "target": "example.com",
+      "tool": "crtsh_search"
+    },
+    {
+      "command": "",
+      "finished_at": "2026-08-30T01:10:27.077479+00:00",
+      "id": "evidence-9f813d79d8c0",
+      "raw_output_path": "examples/sample-evidence/run-7192eaab76c5/evidence-9f813d79d8c0.jsonl",
+      "return_code": null,
+      "run_id": "run-7192eaab76c5",
+      "runner": "host",
+      "started_at": "2026-08-30T01:10:27.077478+00:00",
+      "status": "success",
+      "stderr": "",
+      "target": "example.com",
+      "tool": "discover_subdomains"
+    },
+    {
+      "command": "",
+      "finished_at": "2026-08-30T01:10:27.077861+00:00",
+      "id": "evidence-7c4e694301b3",
+      "raw_output_path": "examples/sample-evidence/run-7192eaab76c5/evidence-7c4e694301b3.jsonl",
+      "return_code": null,
+      "run_id": "run-7192eaab76c5",
+      "runner": "host",
+      "started_at": "2026-08-30T01:10:27.077857+00:00",
+      "status": "success",
+      "stderr": "",
+      "target": "example.com",
+      "tool": "retrieve_passive_urls"
+    },
+    {
+      "command": "",
+      "finished_at": "2026-08-30T01:10:27.078472+00:00",
+      "id": "evidence-3aebdfeecd74",
+      "raw_output_path": "examples/sample-evidence/run-7192eaab76c5/evidence-3aebdfeecd74.jsonl",
+      "return_code": null,
+      "run_id": "run-7192eaab76c5",
+      "runner": "host",
+      "started_at": "2026-08-30T01:10:27.078471+00:00",
+      "status": "success",
+      "stderr": "",
+      "target": "portal.example.com",
+      "tool": "resolve_dns"
+    },
+    {
+      "command": "",
+      "finished_at": "2026-08-30T01:10:27.079198+00:00",
+      "id": "evidence-d0625b792ff2",
+      "raw_output_path": "examples/sample-evidence/run-7192eaab76c5/evidence-d0625b792ff2.jsonl",
+      "return_code": null,
+      "run_id": "run-7192eaab76c5",
+      "runner": "host",
+      "started_at": "2026-08-30T01:10:27.079196+00:00",
+      "status": "success",
+      "stderr": "",
+      "target": "portal.example.com",
+      "tool": "probe_http"
+    }
+  ],
+  "limitations": [
+    "Recon observations are not vulnerability confirmations.",
+    "Only executed tools and their captured evidence are represented."
+  ],
+  "observations": [
+    {
+      "created_at": "2026-08-30T01:10:27.079363+00:00",
+      "evidence_id": "evidence-d0625b792ff2",
+      "id": "obs-fbaadadc9947",
+      "run_id": "run-7192eaab76c5",
+      "source_tool": "probe_http",
+      "type": "http_service",
+      "value_json": "{\"metadata\": {\"host\": \"portal.example.com\", \"location\": \"/login\", \"port\": \"443\", \"status_code\": 302, \"tech\": [\"Example Gateway\"], \"url\": \"https://portal.example.com\"}, \"type\": \"http_service\", \"value\": \"https://portal.example.com\"}"
+    },
+    {
+      "created_at": "2026-08-30T01:10:27.078618+00:00",
+      "evidence_id": "evidence-3aebdfeecd74",
+      "id": "obs-d2e9d6aca382",
+      "run_id": "run-7192eaab76c5",
+      "source_tool": "resolve_dns",
+      "type": "dns_a",
+      "value_json": "{\"host\": \"portal.example.com\", \"type\": \"dns_a\", \"value\": \"192.0.2.10\"}"
+    },
+    {
+      "created_at": "2026-08-30T01:10:27.078072+00:00",
+      "evidence_id": "evidence-7c4e694301b3",
+      "id": "obs-585a77ad1eb1",
+      "run_id": "run-7192eaab76c5",
+      "source_tool": "retrieve_passive_urls",
+      "type": "url_candidate",
+      "value_json": "{\"type\": \"url_candidate\", \"value\": \"https://portal.example.com/login\"}"
+    },
+    {
+      "created_at": "2026-08-30T01:10:27.077631+00:00",
+      "evidence_id": "evidence-9f813d79d8c0",
+      "id": "obs-e4f4d70fa143",
+      "run_id": "run-7192eaab76c5",
+      "source_tool": "discover_subdomains",
+      "type": "hostname",
+      "value_json": "{\"source\": \"fixture\", \"type\": \"hostname\", \"value\": \"portal.example.com\"}"
+    },
+    {
+      "created_at": "2026-08-30T01:10:27.077203+00:00",
+      "evidence_id": "evidence-10be206e125c",
+      "id": "obs-455a24320ea8",
+      "run_id": "run-7192eaab76c5",
+      "source_tool": "crtsh_search",
+      "type": "ct_hostname",
+      "value_json": "{\"certificate_id\": 1001, \"type\": \"ct_hostname\", \"value\": \"portal.example.com\"}"
+    }
+  ],
+  "run": {
+    "config_json": "{\"root_fqdn\": \"example.com\", \"mode\": \"passive\", \"authorized_hosts\": [], \"max_tool_calls\": 25, \"max_assets\": 500, \"max_duration_seconds\": 1800, \"max_retries\": 2, \"rate_limit\": 10, \"concurrency\": 2, \"database\": \"react-recon.db\", \"evidence_dir\": \"examples/sample-evidence\", \"docker_image\": \"projectdiscovery/recon:latest\"}",
+    "created_at": "2026-08-30T01:10:27.076637+00:00",
+    "id": "run-7192eaab76c5",
+    "mode": "passive",
+    "root_fqdn": "example.com",
+    "status": "completed",
+    "updated_at": "2026-08-30T01:10:27.079791+00:00"
+  },
+  "tasks": [
+    {
+      "arguments_json": "{\"hosts\": [\"portal.example.com\"]}",
+      "attempts": 0,
+      "created_at": "2026-08-30T01:10:27.078280+00:00",
+      "id": "task-357857107eee",
+      "run_id": "run-7192eaab76c5",
+      "status": "completed",
+      "tool": "resolve_dns",
+      "updated_at": "2026-08-30T01:10:27.078821+00:00"
+    },
+    {
+      "arguments_json": "{\"hosts\": [\"portal.example.com\"]}",
+      "attempts": 0,
+      "created_at": "2026-08-30T01:10:27.079011+00:00",
+      "id": "task-057ef0181523",
+      "run_id": "run-7192eaab76c5",
+      "status": "completed",
+      "tool": "probe_http",
+      "updated_at": "2026-08-30T01:10:27.079561+00:00"
+    }
+  ]
+}

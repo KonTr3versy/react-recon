@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Recon report run-7192eaab76c5</title>
+<style>body{font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:1250px;margin:2rem auto;padding:0 1rem;color:#202124;line-height:1.45}h1{margin-bottom:.25rem}h2{border-bottom:1px solid #ddd;padding-bottom:.35rem;margin-top:2rem}h3{margin-bottom:.3rem}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #d9dce1;padding:.55rem;text-align:left;vertical-align:top}th{background:#f4f6f8}pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:12px ui-monospace,monospace}.summary{display:flex;gap:1rem;flex-wrap:wrap}.card{background:#f4f6f8;border-radius:6px;padding:.75rem 1rem}.success,.completed{color:#137333}.failed{color:#b3261e}.skipped{color:#8a5a00}details{margin:.6rem 0}summary{cursor:pointer;font-weight:600;padding:.6rem;background:#f8f9fa}a{color:#175cd3}.brief{border:1px solid #d9dce1;border-left:5px solid #175cd3;border-radius:5px;padding:1rem;margin:1rem 0}.brief.P1{border-left-color:#b3261e}.brief.P2{border-left-color:#d97706}.brief.P3{border-left-color:#175cd3}.badge{display:inline-block;border-radius:4px;padding:.15rem .45rem;font-weight:700;background:#e8eef9}.badge.P1{background:#fce8e6;color:#b3261e}.badge.P2{background:#fff4dc;color:#8a5a00}.badge.P3{background:#e8eef9;color:#175cd3}.muted{color:#5f6368}.notice{background:#fff8e1;border-left:4px solid #d97706;padding:.8rem 1rem}ul.compact li{margin:.25rem 0}code{font-size:.9em}</style></head><body>
+<h1>Pentester recon brief</h1><p class='muted'>Run run-7192eaab76c5 · Status: <strong class='completed'>completed</strong></p>
+<div class='summary'><div class='card'>Root: example.com</div><div class='card'>Mode: passive</div><div class='card'>Coverage: Complete</div><div class='card'>Assets: 1</div><div class='card'>Observations: 5</div><div class='card'>Executions: 5</div></div>
+
+<h2>Analyst assessment</h2><p class='muted'>Provider: fixture · Model: fixture-model · Prompt: example-v1</p><p>One verified external portal warrants focused manual characterization.</p>
+<h2>Priority target queue</h2><table><tr><th>Priority</th><th>Target</th><th>Exposure</th><th>Why it matters</th><th>Confidence</th></tr><tr><td><span class='badge P1'>P1</span></td><td><strong>portal.example.com</strong></td><td>Verified HTTPS portal with a login redirect.</td><td>It is a confirmed external authentication boundary.</td><td>high</td></tr></table>
+<h2>Target briefs</h2><article class='brief P1'>
+<h3><span class='badge P1'>P1</span> portal.example.com</h3>
+
+<p><strong>Why it is interesting:</strong> It is a confirmed external authentication boundary.</p>
+<p><strong>Pentester objective:</strong> Characterize authentication behavior and exposed metadata.</p>
+<p><strong>Observed:</strong></p><ul class='compact'><li>HTTP endpoint https://portal.example.com returned status 302 <span class='muted'><a href='#'>evidence-d0625b792ff2</a></span></li></ul>
+<p><strong>Suggested human follow-up:</strong></p><ul class='compact'><li>Review the authentication flow and certificate relationships manually.</li></ul>
+<p><strong>Caveats:</strong></p><ul class='compact'><li>Synthetic example; no target interaction occurred.</li></ul>
+<p class='muted'>Confidence: high</p>
+</article>
+<h2>Cross-asset intelligence</h2><ul class='compact'><li>No material cross-asset pattern was supported.</li></ul>
+<h2>Information-gathering opportunities</h2><ul class='compact'><li>No separate information-gathering opportunity was prioritized.</li></ul>
+<h2>Collection gaps</h2><ul class='compact'><li>No active port or service enumeration was performed.</li></ul>
+
+<h2>Collection coverage</h2><table><tr><th>Step</th><th>State</th><th>Attempts</th><th>Targets attempted / expected</th></tr><tr><td>crtsh_search</td><td class='success'>success</td><td>1</td><td> / </td></tr><tr><td>discover_subdomains</td><td class='success'>success</td><td>1</td><td> / </td></tr><tr><td>retrieve_passive_urls</td><td class='success'>success</td><td>1</td><td> / </td></tr><tr><td>resolve_dns</td><td class='success'>success</td><td>1</td><td>1 / 1</td></tr><tr><td>probe_http</td><td class='success'>success</td><td>1</td><td>1 / 1</td></tr></table>
+<h2>Coverage and limitations</h2><ul class='compact'><li>Recon observations are not vulnerability confirmations.</li><li>Only executed tools and their captured evidence are represented.</li></ul>
+<h2>Evidence appendix</h2>
+<details><summary>Asset inventory (1)</summary><table><tr><th>Host</th><th>In scope</th><th>Captured</th></tr><tr><td>portal.example.com</td><td>1</td><td>2026-08-30T01:10:27.077229+00:00</td></tr></table></details>
+<details><summary>Execution timeline (5)</summary><table><tr><th>Tool</th><th>Status</th><th>Target</th><th>Return code</th><th>Runner</th><th>Started</th><th>Evidence</th></tr><tr><td>crtsh_search</td><td class='success'>success</td><td>example.com</td><td></td><td>host</td><td>2026-08-30T01:10:27.076963+00:00</td><td><a href='#'>raw evidence</a></td></tr><tr><td>discover_subdomains</td><td class='success'>success</td><td>example.com</td><td></td><td>host</td><td>2026-08-30T01:10:27.077478+00:00</td><td><a href='#'>raw evidence</a></td></tr><tr><td>retrieve_passive_urls</td><td class='success'>success</td><td>example.com</td><td></td><td>host</td><td>2026-08-30T01:10:27.077857+00:00</td><td><a href='#'>raw evidence</a></td></tr><tr><td>resolve_dns</td><td class='success'>success</td><td>portal.example.com</td><td></td><td>host</td><td>2026-08-30T01:10:27.078471+00:00</td><td><a href='#'>raw evidence</a></td></tr><tr><td>probe_http</td><td class='success'>success</td><td>portal.example.com</td><td></td><td>host</td><td>2026-08-30T01:10:27.079196+00:00</td><td><a href='#'>raw evidence</a></td></tr></table></details>
+<details><summary>Normalized observations (5)</summary><details><summary>ct_hostname (1)</summary><table><tr><th>ID</th><th>Value</th><th>Source</th><th>Evidence</th><th>Captured</th></tr><tr><td>obs-455a24320ea8</td><td><pre>{
+  &quot;certificate_id&quot;: 1001,
+  &quot;type&quot;: &quot;ct_hostname&quot;,
+  &quot;value&quot;: &quot;portal.example.com&quot;
+}</pre></td><td>crtsh_search</td><td><a href='#'>evidence</a></td><td>2026-08-30T01:10:27.077203+00:00</td></tr></table></details><details><summary>dns_a (1)</summary><table><tr><th>ID</th><th>Value</th><th>Source</th><th>Evidence</th><th>Captured</th></tr><tr><td>obs-d2e9d6aca382</td><td><pre>{
+  &quot;host&quot;: &quot;portal.example.com&quot;,
+  &quot;type&quot;: &quot;dns_a&quot;,
+  &quot;value&quot;: &quot;192.0.2.10&quot;
+}</pre></td><td>resolve_dns</td><td><a href='#'>evidence</a></td><td>2026-08-30T01:10:27.078618+00:00</td></tr></table></details><details><summary>hostname (1)</summary><table><tr><th>ID</th><th>Value</th><th>Source</th><th>Evidence</th><th>Captured</th></tr><tr><td>obs-e4f4d70fa143</td><td><pre>{
+  &quot;source&quot;: &quot;fixture&quot;,
+  &quot;type&quot;: &quot;hostname&quot;,
+  &quot;value&quot;: &quot;portal.example.com&quot;
+}</pre></td><td>discover_subdomains</td><td><a href='#'>evidence</a></td><td>2026-08-30T01:10:27.077631+00:00</td></tr></table></details><details><summary>http_service (1)</summary><table><tr><th>ID</th><th>Value</th><th>Source</th><th>Evidence</th><th>Captured</th></tr><tr><td>obs-fbaadadc9947</td><td><pre>{
+  &quot;metadata&quot;: {
+    &quot;host&quot;: &quot;portal.example.com&quot;,
+    &quot;location&quot;: &quot;/login&quot;,
+    &quot;port&quot;: &quot;443&quot;,
+    &quot;status_code&quot;: 302,
+    &quot;tech&quot;: [
+      &quot;Example Gateway&quot;
+    ],
+    &quot;url&quot;: &quot;https://portal.example.com&quot;
+  },
+  &quot;type&quot;: &quot;http_service&quot;,
+  &quot;value&quot;: &quot;https://portal.example.com&quot;
+}</pre></td><td>probe_http</td><td><a href='#'>evidence</a></td><td>2026-08-30T01:10:27.079363+00:00</td></tr></table></details><details><summary>url_candidate (1)</summary><table><tr><th>ID</th><th>Value</th><th>Source</th><th>Evidence</th><th>Captured</th></tr><tr><td>obs-585a77ad1eb1</td><td><pre>{
+  &quot;type&quot;: &quot;url_candidate&quot;,
+  &quot;value&quot;: &quot;https://portal.example.com/login&quot;
+}</pre></td><td>retrieve_passive_urls</td><td><a href='#'>evidence</a></td><td>2026-08-30T01:10:27.078072+00:00</td></tr></table></details></details>
+<details><summary>Planner tasks (2)</summary><table><tr><th>Tool</th><th>Status</th><th>Arguments</th><th>Attempts</th></tr><tr><td>resolve_dns</td><td>completed</td><td><pre>{&quot;hosts&quot;: [&quot;portal.example.com&quot;]}</pre></td><td>0</td></tr><tr><td>probe_http</td><td>completed</td><td><pre>{&quot;hosts&quot;: [&quot;portal.example.com&quot;]}</pre></td><td>0</td></tr></table></details>
+</body></html>
