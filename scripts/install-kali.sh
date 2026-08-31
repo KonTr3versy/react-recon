@@ -52,6 +52,13 @@ run() {
   "$@"
 }
 
+require_command() {
+  local command_name="$1"
+  local remediation="$2"
+
+  command -v "${command_name}" >/dev/null 2>&1 || die "${command_name} is required. ${remediation}"
+}
+
 verify_sha256() {
   local file="$1"
   local expected="$2"
@@ -158,6 +165,12 @@ fi
 printf 'Installing Kali prerequisites...\n'
 run sudo apt-get update
 run sudo apt-get install -y ca-certificates coreutils curl git golang-go nmap tar
+
+if [[ "${DRY_RUN}" == true ]]; then
+  printf '+ verify go is installed and available in PATH\n'
+else
+  require_command go "Install a supported Go toolchain, ensure go is available in PATH, then rerun this installer."
+fi
 
 run mkdir -p "${INSTALL_BIN_DIR}"
 export PATH="${INSTALL_BIN_DIR}:${PATH}"

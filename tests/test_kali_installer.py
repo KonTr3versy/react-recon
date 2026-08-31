@@ -39,6 +39,7 @@ def test_kali_installer_dry_run_is_non_mutating_and_pinned() -> None:
     result = run_installer("--dry-run", "--provider", "none")
     assert result.returncode == 0, result.stderr
     assert "apt-get install" in result.stdout
+    assert "verify go is installed" in result.stdout
     assert "subfinder@v2.16.0" in result.stdout
     assert "httpx@v1.10.0" in result.stdout
     assert "uv 0.12.7 release archive" in result.stdout
@@ -52,6 +53,27 @@ def test_kali_installer_rejects_unknown_provider() -> None:
     result = run_installer("--provider", "unknown")
     assert result.returncode != 0
     assert "unsupported provider" in result.stderr
+
+
+def test_kali_installer_reports_missing_go() -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; PATH=""; require_command go "Install Go and ensure go is available in PATH."',
+            "bash",
+            str(INSTALLER),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "go is required" in result.stderr
+    assert "Install Go" in result.stderr
+    assert "PATH" in result.stderr
 
 
 def test_kali_installer_accepts_matching_sha256(tmp_path: Path) -> None:

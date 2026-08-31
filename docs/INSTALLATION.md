@@ -39,6 +39,10 @@ the validated Go-tool versions. The bootstrap pins uv `0.12.7` and verifies the 
 architecture-specific SHA-256 digest before installing `uv` or `uvx`; an
 unknown architecture or digest mismatch stops installation.
 
+After `apt` completes, the installer verifies that `go` is available in
+`PATH`. If Go installation failed or the executable cannot be resolved, setup
+stops before installing any reconnaissance tools and prints an actionable error.
+
 ## 1. Install system prerequisites
 
 ### macOS with Homebrew
