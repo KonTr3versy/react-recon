@@ -6,6 +6,37 @@ The tested development environment is macOS on Apple Silicon with Python 3.14. T
 
 Native Windows without WSL2 has not been validated.
 
+### Kali Linux bootstrap
+
+From a cloned repository, the idempotent installer can install the system
+prerequisites, pinned reconnaissance binaries, Python environment, and selected
+model-provider SDK:
+
+```bash
+./scripts/install-kali.sh --provider openai
+```
+
+To optionally choose a model and enter the matching API key during setup, add
+`--configure`. The key prompt is masked, no API request is made, and the local
+`.env` file is created with mode `600`:
+
+```bash
+./scripts/install-kali.sh --provider openai --configure
+```
+
+Available providers are `openai`, `anthropic`, `both`, and `none`. Review the
+planned commands without changing the system:
+
+```bash
+./scripts/install-kali.sh --provider openai --dry-run
+```
+
+The script must be run as a normal user. It uses `sudo` only for `apt`, places
+Go and uv binaries in `~/.local/bin`, and does not configure Docker, Linux
+capabilities, or shell profiles. API-key configuration occurs only with
+`--configure`. Use `--force` only when you intend to reinstall the validated
+Go-tool versions.
+
 ## 1. Install system prerequisites
 
 ### macOS with Homebrew

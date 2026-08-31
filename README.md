@@ -36,6 +36,15 @@ This is an alpha-quality practitioner tool. The parser and controller paths are 
 
 See [Installation](docs/INSTALLATION.md) for exact macOS/Linux commands and the locally tested tool versions.
 
+Kali users can bootstrap the validated toolchain from a cloned repository:
+
+```bash
+./scripts/install-kali.sh --provider openai
+```
+
+Add `--configure` to opt into a masked model/API-key setup prompt. Without it,
+the installer never requests credentials and collection remains fully usable.
+
 ## Quick start
 
 ```bash
