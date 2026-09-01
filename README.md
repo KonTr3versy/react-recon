@@ -84,37 +84,114 @@ set +a
 
 Choose `REACT_RECON_AI_PROVIDER=openai` with `OPENAI_API_KEY`, or `REACT_RECON_AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. A key is not needed for deterministic collection or standalone report rendering; active hybrid planning and LLM analysis require it. See [Model providers](docs/MODEL_PROVIDERS.md).
 
-## Basic usage
+## Copy/paste operator commands
 
-`run` performs collection, LLM analysis, and both report exports in one command.
-Reports are written beneath `reports/<domain>-<run-date>/`.
+The normal `run` command performs collection, LLM analysis, and both report
+exports in one command. Run these examples from the repository root after
+loading `.env`. Replace the example domain and network values with the approved
+engagement scope before execution.
 
-Passive assessment:
+Start every operator session with:
 
 ```bash
-uv run react-recon run --root-fqdn example.com --mode passive
+set -a
+source .env
+set +a
+uv run react-recon preflight
 ```
 
-Active mode treats the configured root FQDN and its descendants as the
-authorized boundary. `--authorized-host` is optional and adds an exact target
-outside that boundary; it does not bypass DNS verification. HTTP validation
-accepts globally routable answers or explicitly authorized private addresses.
-Naabu and Nmap require every
-public or private destination to be explicitly named with
-`--authorized-network`:
+### Passive mode: end-to-end
+
+Change only the `DOMAIN` value, then copy and paste the complete block:
 
 ```bash
+DOMAIN="target.example"
+
 uv run react-recon run \
-  --root-fqdn example.com \
-  --mode active \
-  --authorized-network 203.0.113.0/24
+  --root-fqdn "$DOMAIN" \
+  --mode passive
 ```
 
-Active runs default to `--planning-mode hybrid`: after the passive baseline,
-the selected provider may prioritize at most three validated typed actions.
-Deterministic target-aware fallback then completes any remaining stages without
-repeating successfully covered targets. Use
-`--planning-mode deterministic` to retain a fully fixed collection sequence.
+This runs crt.sh, Subfinder, gau, dnsx, and httpx; analyzes the normalized
+results; recommends strong candidates for a later active run; and writes the
+matching HTML and JSON reports beneath `reports/<domain>-<run-date>/`.
+
+### Active mode: hybrid ReAct planning and full coverage
+
+Change both values before running. `AUTHORIZED_NETWORK` may be one approved IP
+or one approved CIDR:
+
+```bash
+DOMAIN="target.example"
+AUTHORIZED_NETWORK="192.0.2.0/24"
+
+uv run react-recon run \
+  --root-fqdn "$DOMAIN" \
+  --mode active \
+  --planning-mode hybrid \
+  --max-adaptive-actions 3 \
+  --authorized-network "$AUTHORIZED_NETWORK"
+```
+
+Active mode first completes the passive baseline. The configured model may
+then prioritize up to three validated typed actions before deterministic
+target-aware fallback completes the remaining AlterX, dnsx, httpx, Naabu, and
+Nmap coverage.
+
+Repeat `--authorized-network` when the approved destinations span multiple
+addresses or CIDRs:
+
+```bash
+DOMAIN="target.example"
+AUTHORIZED_PUBLIC_CIDR="192.0.2.0/24"
+AUTHORIZED_INTERNAL_CIDR="198.51.100.0/24"
+
+uv run react-recon run \
+  --root-fqdn "$DOMAIN" \
+  --mode active \
+  --authorized-network "$AUTHORIZED_PUBLIC_CIDR" \
+  --authorized-network "$AUTHORIZED_INTERNAL_CIDR"
+```
+
+Active mode treats the root FQDN and its descendants as the authorized hostname
+boundary. `--authorized-host` optionally adds one exact hostname outside that
+boundary; it does not authorize descendants or bypass DNS verification:
+
+```bash
+DOMAIN="target.example"
+EXACT_HOST="vpn.separately-authorized.example"
+AUTHORIZED_IP="192.0.2.25"
+
+uv run react-recon run \
+  --root-fqdn "$DOMAIN" \
+  --mode active \
+  --authorized-host "$EXACT_HOST" \
+  --authorized-network "$AUTHORIZED_IP"
+```
+
+HTTP validation accepts globally routable answers or explicitly authorized
+private addresses. Naabu and Nmap require every public or private destination
+to be explicitly covered by `--authorized-network`. All active hosts still need
+fresh dnsx evidence from the run.
+
+To disable model-directed collection while preserving the fixed active
+workflow, use:
+
+```bash
+DOMAIN="target.example"
+AUTHORIZED_NETWORK="192.0.2.0/24"
+
+uv run react-recon run \
+  --root-fqdn "$DOMAIN" \
+  --mode active \
+  --planning-mode deterministic \
+  --max-adaptive-actions 0 \
+  --authorized-network "$AUTHORIZED_NETWORK"
+```
+
+The final analyst brief still uses the configured model. Add
+`--collection-only` when the intended result is deterministic collection only,
+with no model analysis or automatic report generation.
 
 Example output:
 
