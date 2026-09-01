@@ -88,8 +88,8 @@ Choose `REACT_RECON_AI_PROVIDER=openai` with `OPENAI_API_KEY`, or `REACT_RECON_A
 
 The normal `run` command performs collection, LLM analysis, and both report
 exports in one command. Run these examples from the repository root after
-loading `.env`. Replace the example domain and network values with the approved
-engagement scope before execution.
+loading `.env`. Replace the example values with the approved engagement scope
+before execution.
 
 Start every operator session with:
 
@@ -118,28 +118,30 @@ matching HTML and JSON reports beneath `reports/<domain>-<run-date>/`.
 
 ### Active mode: hybrid ReAct planning and full coverage
 
-Change both values before running. `AUTHORIZED_NETWORK` may be one approved IP
-or one approved CIDR:
+Change only the `DOMAIN` value, then copy and paste the complete block:
 
 ```bash
 DOMAIN="target.example"
-AUTHORIZED_NETWORK="192.0.2.0/24"
 
 uv run react-recon run \
   --root-fqdn "$DOMAIN" \
   --mode active \
   --planning-mode hybrid \
-  --max-adaptive-actions 3 \
-  --authorized-network "$AUTHORIZED_NETWORK"
+  --max-adaptive-actions 3
 ```
 
 Active mode first completes the passive baseline. The configured model may
-then prioritize up to three validated typed actions before deterministic
-target-aware fallback completes the remaining AlterX, dnsx, httpx, Naabu, and
-Nmap coverage.
+then review fresh DNS addresses, HTTP response priority, status codes, and
+technology signals before selecting up to three validated typed actions. For a
+port-discovery action, the controller resolves the selected opaque candidate ID
+back to its current hostname/IP binding and passes only those IPs to Naabu.
+Deterministic target-aware fallback completes remaining AlterX, dnsx, httpx,
+Naabu, and Nmap coverage.
 
-Repeat `--authorized-network` when the approved destinations span multiple
-addresses or CIDRs:
+Fresh globally routable A/AAAA answers under the authorized hostname boundary
+are eligible automatically. `--authorized-network` is optional: when supplied,
+it becomes a strict destination restriction and also permits matching private
+or otherwise non-global addresses. Repeat it for multiple approved networks:
 
 ```bash
 DOMAIN="target.example"
@@ -160,33 +162,31 @@ boundary; it does not authorize descendants or bypass DNS verification:
 ```bash
 DOMAIN="target.example"
 EXACT_HOST="vpn.separately-authorized.example"
-AUTHORIZED_IP="192.0.2.25"
 
 uv run react-recon run \
   --root-fqdn "$DOMAIN" \
   --mode active \
-  --authorized-host "$EXACT_HOST" \
-  --authorized-network "$AUTHORIZED_IP"
+  --authorized-host "$EXACT_HOST"
 ```
 
 HTTP validation accepts globally routable answers or explicitly authorized
-private addresses. Naabu and Nmap require every public or private destination
-to be explicitly covered by `--authorized-network`. All active hosts still need
-fresh dnsx evidence from the run.
+private addresses. Naabu and Nmap automatically accept fresh globally routable
+answers for in-scope hosts. Private, loopback, link-local, multicast, reserved,
+and unspecified destinations remain ineligible unless an approved IP/CIDR is
+named with `--authorized-network`. All active hosts still need fresh dnsx
+evidence from the run.
 
 To disable model-directed collection while preserving the fixed active
 workflow, use:
 
 ```bash
 DOMAIN="target.example"
-AUTHORIZED_NETWORK="192.0.2.0/24"
 
 uv run react-recon run \
   --root-fqdn "$DOMAIN" \
   --mode active \
   --planning-mode deterministic \
-  --max-adaptive-actions 0 \
-  --authorized-network "$AUTHORIZED_NETWORK"
+  --max-adaptive-actions 0
 ```
 
 The final analyst brief still uses the configured model. Add
@@ -266,10 +266,11 @@ Every destination-touching stage uses the hostname/IP tuples produced by dnsx.
 Bindings expire after one hour by default. httpx receives a per-host IP
 allowlist, Naabu scans the approved IPs rather than
 re-resolving hostnames, and Nmap fingerprints the exact IP/port tuples returned
-by Naabu. A host with a private, loopback, link-local, reserved, or mixed
-authorized/unauthorized answer set is excluded unless its network was named
-with `--authorized-network`. Active port and service stages always require that
-explicit network authorization, including for public IPs.
+by Naabu. Fresh globally routable answers are eligible automatically. A host
+with a private, loopback, link-local, multicast, reserved, unspecified, or
+mixed eligible/ineligible answer set is excluded unless every intended
+non-global destination is covered by `--authorized-network`. When one or more
+networks are supplied, they strictly restrict active port and service targets.
 
 Analysis begins after every required stage has succeeded, exhausted bounded
 retries, or been recorded as not applicable. Failures remain visible as
@@ -323,9 +324,10 @@ The test suite uses fixtures and does not contact external targets. Pull request
 
 Use this tool only where you have explicit authorization and an established
 scope. Selecting active mode is an operator assertion that the root FQDN and
-its descendants are authorized for DNS and HTTP probing. Bounded TCP probing
-also requires explicit destination CIDRs through `--authorized-network`; exact
-additional hostnames must be named with `--authorized-host`. Read
+its descendants are authorized for DNS, HTTP, and bounded TCP probing of fresh
+globally routable DNS answers. Exact additional hostnames must be named with
+`--authorized-host`. Use `--authorized-network` to restrict public destinations
+or permit approved private/non-global destinations. Read
 [Security](SECURITY.md) before operating or modifying the execution boundary.
 
 ## License

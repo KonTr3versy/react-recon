@@ -24,13 +24,15 @@ Include the affected version, impact, reproduction conditions, and a sanitized p
 
 ## Execution boundary
 
-Changes to scope validation, subprocess construction, Docker mounts, evidence paths, reprocessing, or the model/tool boundary require focused tests. Never introduce `shell=True`, arbitrary command arguments, unrestricted filesystem paths, or automatic scope expansion.
+Changes to scope validation, subprocess construction, Docker mounts, evidence paths, reprocessing, or the model/tool boundary require focused tests. Never introduce `shell=True`, arbitrary command arguments, unrestricted filesystem paths, or model-created scope expansion.
 
 Destination authorization is a hostname-and-address invariant. dnsx evidence
 must place the hostname in scope. HTTP validation accepts globally routable or
-explicitly authorized addresses; active Naabu/Nmap execution requires every
-destination to be covered by `--authorized-network`. Bindings also expire after
-the configured freshness window. httpx is constrained to each hostname's
-address set, Naabu receives IP inputs, and Nmap receives exact observed IP/port
-tuples. Docker fallbacks must be content-addressed image digests and are run
-read-only with dropped capabilities and a narrow input mount.
+explicitly authorized addresses. Active Naabu/Nmap execution accepts fresh
+globally routable addresses automatically; an optional `--authorized-network`
+strictly narrows public targets and is required for matching private or other
+non-global destinations. Bindings also expire after the configured freshness
+window. httpx is constrained to each hostname's address set, Naabu receives IP
+inputs, and Nmap receives exact observed IP/port tuples. Docker fallbacks must
+be content-addressed image digests and are run read-only with dropped
+capabilities and a narrow input mount.

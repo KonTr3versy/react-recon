@@ -163,9 +163,12 @@ uv run react-recon run \
   --root-fqdn example.com \
   --mode active \
   --planning-mode deterministic \
-  --authorized-network 203.0.113.0/24 \
   --collection-only
 ```
+
+Fresh globally routable DNS answers are eligible for active probing without an
+IP/CIDR argument. Add `--authorized-network` to strictly restrict those
+destinations or to permit an approved private/non-global network.
 
 See [Model providers](MODEL_PROVIDERS.md) for provider-specific commands and defaults.
 

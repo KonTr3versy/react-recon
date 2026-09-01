@@ -72,10 +72,6 @@ class RunConfig:
             raise ValueError(
                 "max_assets must accommodate the root_fqdn and every explicit authorized_host"
             )
-        if self.mode == "active" and not self.authorized_networks:
-            raise ValueError(
-                "active mode requires at least one authorized_network for port and service probing"
-            )
         # Migrate the auto-selection sentinel stored by pre-hardening runs.
         # It is normalized before any executor can use it as an image name.
         if self.docker_image.rsplit(":", 1) == ["projectdiscovery/recon", "latest"]:
@@ -83,8 +79,11 @@ class RunConfig:
         if self.docker_image and not re.fullmatch(r"[^@\s]+@sha256:[0-9a-fA-F]{64}", self.docker_image):
             raise ValueError("custom docker_image must be pinned by sha256 digest")
         # Active mode is an explicit operator assertion that the configured
-        # root FQDN and its descendants are authorized. authorized_hosts remains
-        # available for exact additional hosts outside that domain boundary.
+        # root FQDN and its descendants are authorized. Fresh globally routable
+        # DNS answers can become active scan candidates; authorized_networks is
+        # an optional strict restriction and an opt-in for non-global addresses.
+        # authorized_hosts remains available for exact additional hosts outside
+        # that domain boundary.
         for name in (
             "max_tool_calls",
             "max_assets",

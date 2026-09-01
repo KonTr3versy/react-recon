@@ -17,7 +17,7 @@ from .files import (
     write_private_text,
 )
 from .models import RunConfig, ToolResult, utc_now
-from .scope import address_in_authorized_networks, address_is_authorized, in_scope, normalize_host
+from .scope import address_is_active_scan_authorized, address_is_authorized, in_scope, normalize_host
 
 
 _CAPTURE_TIME_UNSET = object()
@@ -682,7 +682,7 @@ class Store:
                         rejected = True
                         continue
                     destination_allowed = (
-                        address_in_authorized_networks(
+                        address_is_active_scan_authorized(
                             address, config.authorized_networks
                         )
                         if active
@@ -1138,9 +1138,9 @@ class Store:
         except (TypeError, ValueError, json.JSONDecodeError):
             # Preserve evidence even for a legacy row with incomplete config;
             # current defaults still impose bounded, private storage.
-            # Storage/reprocessing need conservative limits even when a legacy
-            # active row predates mandatory destination CIDRs. Passive fallback
-            # cannot authorize active port execution.
+            # Storage/reprocessing need conservative limits when a legacy row
+            # contains malformed or incomplete execution policy. Passive
+            # fallback cannot authorize active port execution.
             fallback_mode = "passive" if run["mode"] == "active" else run["mode"]
             config = RunConfig(root_fqdn=run["root_fqdn"], mode=fallback_mode)
             config.validate()

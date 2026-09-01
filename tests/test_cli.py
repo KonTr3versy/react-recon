@@ -5,6 +5,7 @@ import stat
 import react_recon.cli as cli
 from react_recon.cli import _run_report_directory, build_parser
 from react_recon.files import harden_artifacts
+from react_recon.models import RunConfig
 
 
 def test_analyze_accepts_provider_and_model_overrides():
@@ -89,12 +90,17 @@ def test_run_report_directory_uses_domain_and_run_date():
     assert result == Path("reports/portal.example.com-2026-08-31")
 
 
-def test_active_run_without_authorized_network_fails_before_collection(capsys):
-    result = cli.main(
+def test_active_run_allows_automatic_public_destination_selection():
+    args = build_parser().parse_args(
         ["run", "--root-fqdn", "example.com", "--mode", "active"]
     )
-    assert result == 2
-    assert "active mode requires at least one authorized_network" in capsys.readouterr().err
+    config = RunConfig(
+        args.root_fqdn,
+        mode=args.mode,
+        authorized_networks=args.authorized_network,
+    )
+    config.validate()
+    assert config.authorized_networks == []
 
 
 def test_harden_artifacts_migrates_legacy_sensitive_paths(tmp_path, capsys):

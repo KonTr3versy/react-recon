@@ -438,6 +438,11 @@ def build_action_catalog(
             }
             if candidate.port:
                 card["observed_open_port"] = candidate.port
+            if candidate.addresses:
+                # Addresses are evidence supplied by the controller, not model
+                # arguments. The decision still resolves only through the
+                # opaque candidate ID and its current DNS-bound target tuple.
+                card["resolved_addresses"] = list(candidate.addresses)
             entries.append(CatalogEntry(candidate_id, candidate, card))
         grouped[tool] = sorted(
             entries,

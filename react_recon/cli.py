@@ -77,7 +77,10 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
         "--authorized-network",
         action="append",
         default=[],
-        help="IP or CIDR authorized for active port/service probing (repeatable)",
+        help=(
+            "optional strict IP/CIDR restriction for active port/service probing; "
+            "also permits matching non-global destinations (repeatable)"
+        ),
     )
     parser.add_argument("--database", default="react-recon.db")
     parser.add_argument("--evidence-dir", default="evidence")

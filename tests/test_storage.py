@@ -64,12 +64,6 @@ def test_active_scan_hosts_require_resolution_and_exclude_shared_infrastructure(
             "example.com",
             mode="active",
             authorized_hosts=["explicit.example.com"],
-            authorized_networks=[
-                "93.184.216.34/32",
-                "8.8.8.8/32",
-                "1.1.1.1/32",
-                "9.9.9.9/32",
-            ],
         )
         run_id = store.create_run(config)
         store.record_result(
@@ -363,7 +357,7 @@ def test_legacy_run_expands_asset_budget_only_to_fit_existing_seeds(tmp_path):
         store.close()
 
 
-def test_active_port_targets_require_explicit_destination_network(tmp_path):
+def test_active_port_targets_honor_explicit_destination_network_restriction(tmp_path):
     store = Store(str(tmp_path / "run.db"), str(tmp_path / "evidence"))
     try:
         config = RunConfig("example.com", mode="active", authorized_networks=["93.184.216.34/32"])
@@ -382,6 +376,34 @@ def test_active_port_targets_require_explicit_destination_network(tmp_path):
         assert store.approved_targets(run_id, config, active=True) == []
         assert store.approved_targets(run_id, config, active=False) == [
             {"host": "delegated.example.com", "addresses": ["8.8.8.8"]}
+        ]
+    finally:
+        store.close()
+
+
+def test_active_port_targets_automatically_accept_fresh_public_dns_answers(tmp_path):
+    store = Store(str(tmp_path / "run.db"), str(tmp_path / "evidence"))
+    try:
+        config = RunConfig("example.com", mode="active")
+        run_id = store.create_run(config)
+        store.record_result(
+            run_id,
+            ToolResult(
+                "resolve_dns",
+                "success",
+                "app.example.com",
+                observations=[
+                    {
+                        "type": "dns_a",
+                        "host": "app.example.com",
+                        "value": "93.184.216.34",
+                    }
+                ],
+            ),
+        )
+
+        assert store.approved_targets(run_id, config, active=True) == [
+            {"host": "app.example.com", "addresses": ["93.184.216.34"]}
         ]
     finally:
         store.close()

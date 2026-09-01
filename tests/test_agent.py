@@ -10,6 +10,7 @@ import pytest
 from react_recon.agent import ReconAgent
 from react_recon.models import Decision, RunConfig, ToolResult
 from react_recon.runtime import BoundedProcessResult, run_bounded_process
+from react_recon.scope import address_is_active_scan_authorized
 from react_recon.storage import Store
 
 
@@ -74,12 +75,19 @@ def test_active_port_discovery_is_not_allowed_in_passive_mode(tmp_path: Path):
     assert result.status == "skipped"
 
 
-def test_active_mode_requires_a_destination_network_without_host_enumeration():
-    with pytest.raises(ValueError, match="authorized_network"):
-        RunConfig("example.com", mode="active").validate()
-    RunConfig(
-        "example.com", mode="active", authorized_networks=["93.184.216.34/32"]
-    ).validate()
+def test_active_mode_automatically_accepts_public_dns_destinations():
+    config = RunConfig("example.com", mode="active")
+    config.validate()
+    assert address_is_active_scan_authorized("93.184.216.34", [])
+
+
+def test_active_destination_network_is_a_strict_optional_restriction():
+    assert not address_is_active_scan_authorized("8.8.8.8", ["1.1.1.1/32"])
+    assert address_is_active_scan_authorized("1.1.1.1", ["1.1.1.1/32"])
+    assert not address_is_active_scan_authorized("10.20.30.40", [])
+    assert address_is_active_scan_authorized("10.20.30.40", ["10.20.0.0/16"])
+    assert not address_is_active_scan_authorized("64:ff9b::7f00:1", [])
+    assert not address_is_active_scan_authorized("2002:7f00:1::", [])
 
 
 def test_httpx_command_collects_response_classification_metadata():
@@ -274,6 +282,88 @@ def test_port_discovery_rejects_global_ip_outside_explicit_network():
     )
     assert result.status == "skipped"
     assert "approved hostname/IP mapping" in result.limitations[0]
+
+
+def test_port_discovery_accepts_controller_bound_public_ip_without_network(
+    monkeypatch,
+):
+    from react_recon.executor import Executor
+
+    executor = Executor(RunConfig("example.com", mode="active"))
+    monkeypatch.setattr(
+        "react_recon.executor.shutil.which",
+        lambda name: "/usr/bin/naabu" if name == "naabu" else None,
+    )
+    monkeypatch.setattr(
+        executor,
+        "_run_command",
+        lambda *args, **kwargs: BoundedProcessResult(
+            0,
+            '{"host":"93.184.216.34","ip":"93.184.216.34","port":443}\n',
+            "",
+        ),
+    )
+
+    result = executor.execute(
+        "discover_ports",
+        {
+            "hosts": ["app.example.com"],
+            "approved_addresses": {
+                "app.example.com": ["93.184.216.34"]
+            },
+        },
+    )
+
+    assert result.status == "success"
+    assert result.observations == [
+        {
+            "type": "open_port",
+            "host": "app.example.com",
+            "port": 443,
+            "protocol": "tcp",
+            "ip": "93.184.216.34",
+        }
+    ]
+
+
+def test_fingerprinting_accepts_observed_public_ip_without_network(monkeypatch):
+    from react_recon.executor import Executor
+
+    executor = Executor(RunConfig("example.com", mode="active"))
+    monkeypatch.setattr(
+        "react_recon.executor.shutil.which",
+        lambda name: "/usr/bin/nmap" if name == "nmap" else None,
+    )
+    monkeypatch.setattr(
+        executor,
+        "_run_command",
+        lambda *args, **kwargs: BoundedProcessResult(
+            0, "<?xml version='1.0'?><nmaprun></nmaprun>", ""
+        ),
+    )
+
+    result = executor.execute(
+        "fingerprint_services",
+        {
+            "targets": [
+                {
+                    "host": "app.example.com",
+                    "ip": "93.184.216.34",
+                    "ports": [443],
+                }
+            ]
+        },
+    )
+
+    assert result.status == "success"
+    assert len(result.target_outcomes) == 1
+    outcome = result.target_outcomes[0]
+    assert outcome["host"] == "app.example.com"
+    assert outcome["ip"] == "93.184.216.34"
+    assert outcome["ports"] == [443]
+    assert outcome["status"] == "completed"
+    assert outcome["stdout_start"] == 0
+    assert outcome["stdout_end"] > outcome["stdout_start"]
 
 
 def test_http_observations_must_match_approved_ip(monkeypatch):

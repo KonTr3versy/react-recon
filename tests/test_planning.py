@@ -207,6 +207,41 @@ def test_passive_hybrid_run_never_calls_adaptive_planner(tmp_path: Path):
         store.close()
 
 
+def test_active_catalog_exposes_probed_public_host_for_model_selected_port_scan(
+    tmp_path: Path,
+):
+    config = _config(tmp_path, authorized_networks=[])
+    store = Store(config.database, config.evidence_dir)
+    try:
+        run_id = _seed_passive_baseline(store, config)
+        catalog = build_action_catalog(store, run_id, config)
+        port_cards = [
+            card for card in catalog.cards if card["tool"] == "discover_ports"
+        ]
+
+        assert port_cards
+        assert port_cards[0]["http_status_codes"] == [200]
+        assert port_cards[0]["http_response_priority"] == "successful"
+        assert port_cards[0]["resolved_addresses"] == ["93.184.216.34"]
+
+        decision = AdaptiveDecision(
+            tool="discover_ports",
+            candidate_ids=[port_cards[0]["candidate_id"]],
+            objective="Enumerate services on the responding host",
+            rationale="The host returned a successful HTTP response",
+            expected_observation="Open TCP services",
+            stop_condition="The selected DNS-bound address has been scanned",
+        )
+        arguments = catalog.resolve(decision)
+        selected_host = port_cards[0]["host"]
+        assert arguments == {
+            "hosts": [selected_host],
+            "approved_addresses": {selected_host: ["93.184.216.34"]},
+        }
+    finally:
+        store.close()
+
+
 def test_adaptive_subset_is_not_duplicated_by_fallback(tmp_path: Path):
     config = _config(tmp_path)
     store = Store(config.database, config.evidence_dir)

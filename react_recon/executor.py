@@ -23,7 +23,7 @@ from .parsers import (
     parse_subfinder,
 )
 from .runtime import BoundedProcessResult, run_bounded_process
-from .scope import address_in_authorized_networks, address_is_authorized, in_scope, normalize_host
+from .scope import address_is_active_scan_authorized, address_is_authorized, in_scope, normalize_host
 
 
 Parser = Callable[[str], List[dict]]
@@ -120,7 +120,7 @@ class Executor:
             approved_addresses = self._approved_address_map(
                 hosts,
                 arguments.get("approved_addresses"),
-                require_explicit=(tool == "discover_ports"),
+                active_scan=(tool == "discover_ports"),
             )
             if not approved_addresses or set(approved_addresses) != {normalize_host(str(host)) for host in hosts}:
                 return ToolResult(tool, "skipped", target, limitations=["no complete approved hostname/IP mapping was available"])
@@ -487,7 +487,7 @@ class Executor:
             if not isinstance(raw_ports, list):
                 continue
             ports = sorted({int(port) for port in raw_ports if str(port).isdigit() and 1 <= int(port) <= 65535})
-            if not in_scope(host, self.config.root_fqdn, self.config.authorized_hosts) or not address_in_authorized_networks(address, self.config.authorized_networks) or not ports:
+            if not in_scope(host, self.config.root_fqdn, self.config.authorized_hosts) or not address_is_active_scan_authorized(address, self.config.authorized_networks) or not ports:
                 continue
             key = (host, address, tuple(ports))
             if key not in seen_targets:
@@ -636,7 +636,7 @@ class Executor:
         hosts: List[object],
         raw: object,
         *,
-        require_explicit: bool = False,
+        active_scan: bool = False,
     ) -> Dict[str, List[str]]:
         if not isinstance(raw, dict):
             return {}
@@ -656,10 +656,10 @@ class Executor:
                 except ValueError:
                     continue
                 destination_allowed = (
-                    address_in_authorized_networks(
+                    address_is_active_scan_authorized(
                         address, self.config.authorized_networks
                     )
-                    if require_explicit
+                    if active_scan
                     else address_is_authorized(
                         address, self.config.authorized_networks
                     )

@@ -37,21 +37,33 @@ uv run react-recon run \
 ```
 
 Globally routable A/AAAA answers are eligible for HTTP validation by default.
-Active Naabu and Nmap stages require explicit destination authorization for
-every public or private IP; repeat the option for disjoint networks:
+In active mode, fresh globally routable answers are also eligible for Naabu and
+Nmap automatically. The model selects only opaque candidate IDs derived from
+those bindings; it cannot supply an address. A basic active run is therefore:
 
 ```bash
 uv run react-recon run \
   --root-fqdn corp.example.com \
   --mode active \
   --planning-mode hybrid \
-  --max-adaptive-actions 3 \
+  --max-adaptive-actions 3
+```
+
+Use `--authorized-network` only to narrow public destinations or opt approved
+private/non-global addresses into active probing. Repeat it for disjoint
+networks:
+
+```bash
+uv run react-recon run \
+  --root-fqdn corp.example.com \
+  --mode active \
   --authorized-network 10.20.0.0/16 \
   --authorized-network 172.20.40.0/24
 ```
 
-`--authorized-network` authorizes destinations, not hostnames. A destination
-still needs an in-scope hostname and fresh dnsx evidence from the current run.
+When supplied, `--authorized-network` is a strict destination allowlist; it
+does not authorize hostnames. A destination still needs an in-scope hostname
+and fresh dnsx evidence from the current run.
 Bindings older than one hour fail closed by default; adjust
 `--max-dns-binding-age-seconds` only when the assessment requires a different
 freshness window.
@@ -82,7 +94,6 @@ boundary. Additional exact hostnames outside that boundary may be supplied with
 uv run react-recon run \
   --root-fqdn example.com \
   --mode active \
-  --authorized-network 203.0.113.0/24 \
   --max-permutations 2000 \
   --dns-rate-limit 50 \
   --rate-limit 5 \
@@ -95,7 +106,8 @@ small prioritization loop:
 1. Complete passive discovery, dnsx verification, and httpx probing.
 2. Build at most 50 compact action cards from current SQLite state. Each card
    has an opaque candidate ID tied to one existing typed tool and canonical
-   target.
+   target, plus evidence-backed DNS addresses, HTTP response priority, status
+   codes, and targeting signals when available.
 3. Let the configured provider choose up to three candidate-ID actions. The
    controller rejects invented, stale, duplicate, mixed-tool, or excessive IDs
    and reconstructs all actual arguments itself.
@@ -104,8 +116,9 @@ small prioritization loop:
    finish, provider/decision failure, or budget exhaustion.
 5. Run deterministic target-aware fallback over any remaining AlterX, dnsx,
    httpx, Naabu, and Nmap stages. Successfully covered targets are not repeated.
-6. Build the Naabu target set from DNS-verified in-scope hosts whose addresses
-   are covered by `--authorized-network`.
+6. Build the Naabu target set from DNS-verified in-scope hosts with fresh
+   globally routable addresses. If `--authorized-network` was supplied, use it
+   as a strict restriction and as the opt-in for matching non-global addresses.
 7. Exclude inferred CDN hosts and hostnames CNAME'd outside the domain boundary,
    unless that hostname was explicitly authorized.
 8. Send only host/IP/port tuples observed open by Naabu to Nmap version-light
@@ -118,7 +131,8 @@ never performs adaptive tool selection.
 
 The HTTP and port stages do not trust a hostname alone. httpx is constrained to
 the approved dnsx address set, Naabu receives those IPs directly, and Nmap uses
-the exact IP/port tuples observed by Naabu. Mixed answer sets fail closed.
+the exact IP/port tuples observed by Naabu. Private and other non-global answers
+need `--authorized-network`; mixed eligible/ineligible answer sets fail closed.
 
 An explicitly authorized hostname still needs DNS evidence from the run before
 it is port scanned. `--max-permutations`, the run-wide tool-call and duration

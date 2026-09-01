@@ -46,7 +46,7 @@ def address_is_authorized(value: str, authorized_networks: Iterable[str] = ()) -
                 return True
         except ValueError:
             return False
-    return address.is_global
+    return _is_public_destination(address)
 
 
 def address_in_authorized_networks(
@@ -66,9 +66,52 @@ def address_in_authorized_networks(
     return False
 
 
+def address_is_active_scan_authorized(
+    value: str, authorized_networks: Iterable[str] = ()
+) -> bool:
+    """Authorize an active scan destination from DNS evidence and run policy.
+
+    With no operator-supplied network restriction, a globally routable address
+    discovered through the controller's fresh DNS binding is eligible. When at
+    least one network is supplied, the entries become a strict narrowing
+    allowlist. Private, loopback, link-local, multicast, reserved, and
+    unspecified destinations therefore still require an explicit IP/CIDR.
+    """
+    networks = tuple(authorized_networks)
+    if networks:
+        return address_in_authorized_networks(value, networks)
+    return address_is_authorized(value)
+
+
+def _is_public_destination(
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Reject special-use and transition addresses from automatic execution."""
+    if (
+        not address.is_global
+        or address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    ):
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and (
+        address.ipv4_mapped is not None
+        or address.sixtofour is not None
+        or address.teredo is not None
+    ):
+        # Transition forms can encode a non-global IPv4 destination while the
+        # outer IPv6 address appears global on some Python/platform versions.
+        return False
+    return True
+
+
 def in_scope(host: str, root_fqdn: str, authorized_hosts: Iterable[str]) -> bool:
-    # This broad root/subdomain test supports passive discovery. Executor adds
-    # an explicit-host requirement before active probing or port discovery.
+    # The root and its descendants are the run's hostname boundary. Exact
+    # authorized_hosts extend that boundary without authorizing sibling names.
+    # Destination-touching adapters apply DNS-binding and IP policy separately.
     candidate = normalize_host(host)
     root = normalize_host(root_fqdn)
     allowed = {normalize_host(item) for item in authorized_hosts}

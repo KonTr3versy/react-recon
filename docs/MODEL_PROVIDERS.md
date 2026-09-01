@@ -45,8 +45,7 @@ export OPENAI_API_KEY="..."
 
 uv run react-recon run \
   --root-fqdn example.com \
-  --mode active \
-  --authorized-network 203.0.113.0/24
+  --mode active
 ```
 
 The adapter uses the [Responses API](https://platform.openai.com/docs/api-reference/responses) with `store=False` and strict JSON Schema output.
@@ -68,8 +67,7 @@ export ANTHROPIC_API_KEY="..."
 
 uv run react-recon run \
   --root-fqdn example.com \
-  --mode active \
-  --authorized-network 203.0.113.0/24
+  --mode active
 ```
 
 The adapter uses the [Messages API](https://platform.claude.com/docs/en/api/python/messages/create) and [`output_config.format` structured output](https://platform.claude.com/docs/en/build-with-claude/structured-outputs). The Anthropic SDK transforms unsupported schema constraints for constrained decoding; react-recon independently enforces the complete contract afterward.
