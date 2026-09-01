@@ -28,6 +28,10 @@ def test_run_accepts_end_to_end_workflow_options():
             "anthropic",
             "--model",
             "claude-fixture",
+            "--planning-mode",
+            "deterministic",
+            "--max-adaptive-actions",
+            "0",
             "--max-targets",
             "6",
             "--reports-dir",
@@ -50,6 +54,8 @@ def test_run_accepts_end_to_end_workflow_options():
     )
     assert args.provider == "anthropic"
     assert args.model == "claude-fixture"
+    assert args.planning_mode == "deterministic"
+    assert args.max_adaptive_actions == 0
     assert args.max_targets == 6
     assert args.reports_dir == "deliverables"
     assert args.authorized_network == ["10.20.0.0/16"]
@@ -60,6 +66,22 @@ def test_run_accepts_end_to_end_workflow_options():
     assert args.max_normalized_bytes == 16384
     assert args.max_dns_binding_age_seconds == 900
     assert args.collection_only is False
+
+
+def test_active_run_defaults_to_bounded_hybrid_planning():
+    args = build_parser().parse_args(
+        [
+            "run",
+            "--root-fqdn",
+            "example.com",
+            "--mode",
+            "active",
+            "--authorized-network",
+            "203.0.113.0/24",
+        ]
+    )
+    assert args.planning_mode == "hybrid"
+    assert args.max_adaptive_actions == 3
 
 
 def test_run_report_directory_uses_domain_and_run_date():

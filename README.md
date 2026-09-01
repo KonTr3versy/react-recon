@@ -1,6 +1,6 @@
 # react-recon
 
-`react-recon` is a bounded reconnaissance and target-prioritization CLI for authorized security assessments. It combines deterministic collection and normalization with a separate evidence-grounded LLM analyst that produces a concise queue for a human pentester.
+`react-recon` is a bounded reconnaissance and target-prioritization CLI for authorized security assessments. It combines deterministic collection and normalization with a tightly scoped ReAct planning step and an evidence-grounded LLM analyst that produces a concise queue for a human pentester.
 
 ```text
 root FQDN
@@ -10,14 +10,18 @@ root FQDN
    +--> gau ------------+                           |
                                                     +--> normalized evidence
                                                                |
-authorized active mode --> bounded AlterX --> DNS --> HTTP -----+
-                                  |                              |
-                                  +--> verified eligible hosts --> Naabu --> observed ports --> Nmap
+authorized active mode --> candidate action catalog --> LLM selects typed action IDs (max 3)
+                                     |                         |
+                                     +--> deterministic executor + progress check
                                                                |
-                                                               +--> LLM targeting brief
+                                     deterministic coverage fallback
+                                                               |
+                                     AlterX --> DNS --> HTTP --> Naabu --> observed ports --> Nmap
+                                                               |
+                                                               +--> LLM targeting brief + reports
 ```
 
-The model does not receive a shell, choose arbitrary commands, or create evidence. Collection, scope enforcement, parsing, deduplication, state transitions, and report facts remain deterministic. The provider-agnostic LLM layer is used after collection for prioritization and synthesis; OpenAI and Anthropic are supported.
+The model does not receive a shell, raw command arguments, local paths, or authority to create evidence. In active hybrid mode it may select from opaque candidate IDs tied to existing typed tools; the controller reconstructs and validates every hostname/IP/port argument from SQLite. Passive collection, scope enforcement, parsing, deduplication, progress evaluation, deterministic fallback, and report facts remain deterministic. OpenAI and Anthropic are supported through the same structured-output boundary.
 
 This project does not perform vulnerability exploitation, credential attacks, crawling, post-exploitation, or persistence.
 
@@ -35,7 +39,7 @@ This is an alpha-quality practitioner tool. The parser and controller paths are 
 - Subfinder, dnsx, httpx, and gau for passive collection
 - AlterX and Naabu for active expansion and port discovery
 - Nmap or Docker for active service fingerprinting
-- An OpenAI or Anthropic API key for the default end-to-end `react-recon run` workflow or the standalone `analyze` command
+- An OpenAI or Anthropic API key for active hybrid planning and the default end-to-end analyst brief
 
 See [Installation](docs/INSTALLATION.md) for exact macOS/Linux commands and the locally tested tool versions.
 
@@ -46,7 +50,8 @@ Kali users can bootstrap the validated toolchain from a cloned repository:
 ```
 
 Add `--configure` to opt into a masked model/API-key setup prompt. Without it,
-the installer never requests credentials and collection remains fully usable.
+the installer never requests credentials and deterministic collection remains
+fully usable.
 
 ## Quick start
 
@@ -77,7 +82,7 @@ source .env
 set +a
 ```
 
-Choose `REACT_RECON_AI_PROVIDER=openai` with `OPENAI_API_KEY`, or `REACT_RECON_AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. The key is not needed for collection or report rendering. See [Model providers](docs/MODEL_PROVIDERS.md).
+Choose `REACT_RECON_AI_PROVIDER=openai` with `OPENAI_API_KEY`, or `REACT_RECON_AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. A key is not needed for deterministic collection or standalone report rendering; active hybrid planning and LLM analysis require it. See [Model providers](docs/MODEL_PROVIDERS.md).
 
 ## Basic usage
 
@@ -104,6 +109,12 @@ uv run react-recon run \
   --mode active \
   --authorized-network 203.0.113.0/24
 ```
+
+Active runs default to `--planning-mode hybrid`: after the passive baseline,
+the selected provider may prioritize at most three validated typed actions.
+Deterministic target-aware fallback then completes any remaining stages without
+repeating successfully covered targets. Use
+`--planning-mode deterministic` to retain a fully fixed collection sequence.
 
 Example output:
 
@@ -150,7 +161,7 @@ See [Usage](docs/USAGE.md) for scope semantics, budgets, state files, reports, t
 
 ## Collection workflow
 
-The controller attempts the workflow in a fixed, resumable order:
+The controller always attempts the passive baseline in a fixed, resumable order:
 
 1. crt.sh certificate-transparency names
 2. Subfinder passive subdomain discovery
@@ -160,9 +171,15 @@ The controller attempts the workflow in a fixed, resumable order:
    technology, TLS, server, content metadata, favicon/JARM, and response hash
    collection for DNS-resolved hosts
 
-Active mode then performs one bounded AlterX expansion using the discovered
-in-scope names, verifies only the new candidates with dnsx and httpx, and runs
-Naabu against DNS-verified eligible hosts. Hosts identified as CDN-backed or
+Active hybrid mode then builds a bounded catalog of eligible typed actions. The
+model may select up to three opaque candidate IDs for DNS/HTTP recovery,
+permutation work, port discovery, or fingerprinting. A deterministic progress
+evaluator stops the adaptive portion after two no-progress/failing actions,
+provider/decision failure, explicit finish, or budget exhaustion. Deterministic
+fallback performs the remaining AlterX, dnsx, httpx, Naabu, and Nmap coverage;
+provider failure never prevents collection from continuing.
+
+Hosts identified as CDN-backed or
 aliased by CNAME to infrastructure outside the configured boundary are excluded
 from port scans unless the hostname was explicitly added with
 `--authorized-host`. Even explicit hosts must resolve during the run. Only
@@ -197,7 +214,7 @@ from active-mode analysis and never treats an unverified passive name as live.
 
 ## Output and data handling
 
-- `react-recon.db`: SQLite run, task, observation, coverage, and analysis state
+- `react-recon.db`: SQLite run, task, adaptive decision/progress, observation, coverage, and analysis state
 - `evidence/RUN_ID/`: append-only raw JSONL execution evidence
 - `reports/<domain>-<run-date>/RUN_ID.json`: complete machine-readable report
 - `reports/<domain>-<run-date>/RUN_ID.html`: concise analyst-facing targeting brief

@@ -44,6 +44,8 @@ every public or private IP; repeat the option for disjoint networks:
 uv run react-recon run \
   --root-fqdn corp.example.com \
   --mode active \
+  --planning-mode hybrid \
+  --max-adaptive-actions 3 \
   --authorized-network 10.20.0.0/16 \
   --authorized-network 172.20.40.0/24
 ```
@@ -87,17 +89,32 @@ uv run react-recon run \
   --concurrency 2
 ```
 
-The active workflow is intentionally linear:
+The active workflow keeps deterministic collection boundaries while allowing a
+small prioritization loop:
 
 1. Complete passive discovery, dnsx verification, and httpx probing.
-2. Run one bounded AlterX pass over discovered in-scope names.
-3. Send only new permutation candidates through dnsx and then httpx.
-4. Build the Naabu target set from DNS-verified in-scope hosts whose addresses
+2. Build at most 50 compact action cards from current SQLite state. Each card
+   has an opaque candidate ID tied to one existing typed tool and canonical
+   target.
+3. Let the configured provider choose up to three candidate-ID actions. The
+   controller rejects invented, stale, duplicate, mixed-tool, or excessive IDs
+   and reconstructs all actual arguments itself.
+4. Measure normalized observations and per-target coverage after every action.
+   Stop the adaptive portion after two no-progress/failing actions, explicit
+   finish, provider/decision failure, or budget exhaustion.
+5. Run deterministic target-aware fallback over any remaining AlterX, dnsx,
+   httpx, Naabu, and Nmap stages. Successfully covered targets are not repeated.
+6. Build the Naabu target set from DNS-verified in-scope hosts whose addresses
    are covered by `--authorized-network`.
-5. Exclude inferred CDN hosts and hostnames CNAME'd outside the domain boundary,
+7. Exclude inferred CDN hosts and hostnames CNAME'd outside the domain boundary,
    unless that hostname was explicitly authorized.
-6. Send only host/port pairs observed open by Naabu to Nmap version-light
+8. Send only host/IP/port tuples observed open by Naabu to Nmap version-light
    fingerprinting.
+
+`--planning-mode hybrid` is the default for active runs. Use
+`--planning-mode deterministic` or `--max-adaptive-actions 0` to disable model
+planning while preserving the same fallback collection sequence. Passive mode
+never performs adaptive tool selection.
 
 The HTTP and port stages do not trust a hostname alone. httpx is constrained to
 the approved dnsx address set, Naabu receives those IPs directly, and Nmap uses
@@ -108,7 +125,7 @@ it is port scanned. `--max-permutations`, the run-wide tool-call and duration
 budgets, dnsx rate limits, and tool retries bound the expansion.
 
 Provider and model can be selected in the same command when they are not set in
-`.env`:
+`.env`. Active hybrid planning and final analysis use this same resolved pair:
 
 ```bash
 uv run react-recon run \
@@ -146,9 +163,9 @@ uv run react-recon analyze RUN_ID \
   --max-targets 8
 ```
 
-The model receives normalized facts, fact identifiers, coverage, and deterministic target profiles—not arbitrary shell access. Its claims must reference known fact IDs and unsupported security claims are rejected.
+For final analysis, the model receives normalized facts, fact identifiers, coverage, and deterministic target profiles—not arbitrary shell access. Its claims must reference known fact IDs and unsupported security claims are rejected. During active hybrid planning it receives only compact action cards and opaque candidate IDs; it cannot supply raw targets, ports, paths, commands, or flags.
 
-The selected model API is an external data processor. Confirm your engagement permits sending normalized reconnaissance metadata to that provider before running this command. Collection and deterministic reports remain available without it. See [Model providers](MODEL_PROVIDERS.md) for configuration and precedence.
+The selected model API is an external data processor. Confirm your engagement permits sending normalized reconnaissance metadata to that provider before running this command. Deterministic collection and standalone report rendering remain available without it; disable hybrid planning and use `--collection-only` when no provider request is permitted. See [Model providers](MODEL_PROVIDERS.md) for configuration and precedence.
 
 ### Reports
 
@@ -167,9 +184,11 @@ Resume uses the original scope and budgets stored in SQLite:
 uv run react-recon resume RUN_ID
 ```
 
-The tool-call count is also durable. Restarting `resume` cannot reset the
-original run's execution budget or repeat stages that already produced an
-execution ledger record.
+The tool-call count, adaptive-action count, selected candidate IDs, progress
+deltas, and stop reason are durable. Restarting `resume` cannot reset the
+original run's execution budget, reopen a completed adaptive phase, or repeat
+targets already marked complete. Runs created before hybrid planning resume in
+deterministic mode.
 
 Reprocess applies current parsers to existing raw evidence without network traffic:
 
@@ -193,6 +212,10 @@ export REACT_RECON_EVIDENCE_DIR=/path/to/evidence
 - `skipped`: policy or state prevented execution, such as no eligible hosts.
 - `not_applicable`: no valid downstream targets existed for that stage.
 - `incomplete`: some expected targets were not attempted.
+
+The JSON report includes every adaptive decision and progress metric. The HTML
+evidence appendix keeps this information collapsed and shows at most three
+decision rows so the primary analyst brief remains focused.
 
 A run with an exhausted/repeated collector failure ends as
 `completed_with_gaps` after the remaining safe stages are attempted. If model

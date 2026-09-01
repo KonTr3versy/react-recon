@@ -190,7 +190,31 @@ class Executor:
                 observations = []
                 limitations.append(f"tool observations exceeded the run ceiling of {self.config.max_observations}")
             limitations.append(f"duration_seconds={time.monotonic()-start_time:.3f}")
-            return ToolResult(tool, status, target, stdout, stderr, completed.returncode, " ".join(command), started, utc_now(), observations, limitations, runner)
+            target_outcomes = []
+            if tool in {"resolve_dns", "resolve_permutations"}:
+                outcome_status = "completed" if status == "success" else "failed"
+                target_outcomes = [
+                    {
+                        "host": normalize_host(str(host)),
+                        "status": outcome_status,
+                    }
+                    for host in hosts
+                ]
+            return ToolResult(
+                tool,
+                status,
+                target,
+                stdout,
+                stderr,
+                completed.returncode,
+                " ".join(command),
+                started,
+                utc_now(),
+                observations,
+                limitations,
+                runner,
+                target_outcomes=target_outcomes,
+            )
         finally:
             if bundle:
                 bundle.cleanup()
@@ -231,7 +255,11 @@ class Executor:
         failed_groups = 0
         stdout_bytes = 0
         stderr_bytes = 0
+        stdout_characters = 0
         aggregate_limited = False
+        observation_limited = False
+        target_status = {host: "unattempted" for host in approved}
+        target_output: Dict[str, Dict[str, int]] = {}
 
         for addresses, group_hosts in groups.items():
             if time.monotonic() - started_monotonic >= self.config.max_duration_seconds:
@@ -242,6 +270,8 @@ class Executor:
             bundle = self._materialize_input(tool, group_hosts, group_approved)
             if bundle is None:
                 failed_groups += 1
+                for host in group_hosts:
+                    target_status[host] = "failed"
                 continue
             try:
                 command = self._command(
@@ -267,6 +297,8 @@ class Executor:
                     completed = self._run_command(command, remaining)
                 except OSError as exc:
                     failed_groups += 1
+                    for host in group_hosts:
+                        target_status[host] = "failed"
                     errors.append(f"{','.join(group_hosts)}: {exc}")
                     continue
 
@@ -286,8 +318,18 @@ class Executor:
                 ):
                     aggregate_limited = True
                     failed_groups += 1
+                    for host in group_hosts:
+                        target_status[host] = "failed"
                     break
+                stdout_start = stdout_characters + (1 if outputs else 0)
+                stdout_end = stdout_start + len(stdout_piece)
                 outputs.append(stdout_piece)
+                stdout_characters = stdout_end
+                for host in group_hosts:
+                    target_output[host] = {
+                        "stdout_start": stdout_start,
+                        "stdout_end": stdout_end,
+                    }
                 stdout_bytes += stdout_piece_bytes
                 if stderr_piece:
                     errors.append(stderr_piece)
@@ -295,15 +337,21 @@ class Executor:
 
                 if completed.timed_out:
                     failed_groups += 1
+                    for host in group_hosts:
+                        target_status[host] = "failed"
                     limitations.append(f"HTTP probe timed out for {','.join(group_hosts)}")
                     continue
                 if completed.output_limited:
                     failed_groups += 1
                     aggregate_limited = True
+                    for host in group_hosts:
+                        target_status[host] = "failed"
                     limitations.append(f"HTTP output exceeded {self.config.max_output_bytes} bytes")
                     break
                 if completed.returncode != 0:
                     failed_groups += 1
+                    for host in group_hosts:
+                        target_status[host] = "failed"
                     continue
 
                 parsed, rejected = self._validate_http_observations(
@@ -311,12 +359,17 @@ class Executor:
                 )
                 if rejected:
                     failed_groups += 1
+                    for host in group_hosts:
+                        target_status[host] = "failed"
                     limitations.append(
                         f"rejected {rejected} HTTP observations outside the bound addresses for {','.join(group_hosts)}"
                     )
                     continue
                 if len(observations) + len(parsed) > self.config.max_observations:
                     failed_groups += 1
+                    observation_limited = True
+                    for host in group_hosts:
+                        target_status[host] = "failed"
                     limitations.append(
                         f"HTTP observations exceeded the run ceiling of {self.config.max_observations}"
                     )
@@ -324,11 +377,17 @@ class Executor:
                     break
                 observations.extend(parsed)
                 completed_groups += 1
+                for host in group_hosts:
+                    target_status[host] = "completed"
             finally:
                 bundle.cleanup()
 
-        if aggregate_limited:
+        if aggregate_limited or observation_limited:
             observations = []
+            for host, state in target_status.items():
+                if state == "completed":
+                    target_status[host] = "failed"
+        if aggregate_limited:
             limitations.append(
                 f"aggregate HTTP output exceeded {self.config.max_output_bytes} bytes"
             )
@@ -356,6 +415,15 @@ class Executor:
             observations,
             limitations,
             "host" if binary else "docker",
+            target_outcomes=[
+                {
+                    "host": host,
+                    "addresses": sorted(approved[host]),
+                    "status": target_status[host],
+                    **target_output.get(host, {}),
+                }
+                for host in sorted(target_status)
+            ],
         )
 
     def _crtsh_search(self, root_fqdn: str) -> ToolResult:
@@ -450,9 +518,18 @@ class Executor:
         successes = 0
         stdout_bytes = 0
         stderr_bytes = 0
+        stdout_characters = 0
         aggregate_limited = False
         observation_limited = False
+        target_status = {
+            (host, address, tuple(ports)): "unattempted"
+            for host, address, ports in normalized_targets
+        }
+        target_output: Dict[tuple[str, str, tuple[int, ...]], Dict[str, int]] = {}
         for host, address, ports in normalized_targets:
+            outcome_key = (host, address, tuple(ports))
+            if time.monotonic() - started_monotonic >= self.config.max_duration_seconds:
+                break
             # -n and an explicit IP eliminate the prior DNS TOCTOU. -sT keeps
             # Docker fallback compatible with a cap-drop=ALL container.
             nmap_args = ["-n", "-Pn", "-sT", "-sV", "--version-light", "-oX", "-", "-p", ",".join(str(port) for port in ports)]
@@ -465,6 +542,7 @@ class Executor:
             try:
                 completed = self._run_command(command, remaining)
             except OSError as exc:
+                target_status[outcome_key] = "failed"
                 errors.append(f"{host}[{address}]: {exc}")
                 continue
             stdout_piece = completed.stdout
@@ -473,22 +551,33 @@ class Executor:
             stderr_piece_bytes = len(stderr_piece.encode("utf-8")) + (1 if errors and stderr_piece else 0)
             if stdout_bytes + stdout_piece_bytes > self.config.max_output_bytes or stderr_bytes + stderr_piece_bytes > self.config.max_output_bytes:
                 aggregate_limited = True
+                target_status[outcome_key] = "failed"
                 break
+            stdout_start = stdout_characters + (1 if outputs else 0)
+            stdout_end = stdout_start + len(stdout_piece)
             outputs.append(stdout_piece)
+            stdout_characters = stdout_end
+            target_output[outcome_key] = {
+                "stdout_start": stdout_start,
+                "stdout_end": stdout_end,
+            }
             stdout_bytes += stdout_piece_bytes
             if stderr_piece:
                 errors.append(stderr_piece)
                 stderr_bytes += stderr_piece_bytes
             if completed.timed_out:
+                target_status[outcome_key] = "failed"
                 errors.append(f"{host}[{address}]: timeout")
                 break
             if completed.output_limited:
+                target_status[outcome_key] = "failed"
+                aggregate_limited = True
                 errors.append(f"{host}[{address}]: output limit exceeded")
                 break
             if completed.returncode == 0:
-                successes += 1
                 parsed = parse_nmap(completed.stdout)
                 if len(observations) + len(parsed) > self.config.max_observations:
+                    target_status[outcome_key] = "failed"
                     observation_limited = True
                     break
                 for observation in parsed:
@@ -496,16 +585,51 @@ class Executor:
                     observation["ip"] = address
                     observation["addresses"] = [address]
                     observations.append(observation)
+                target_status[outcome_key] = "completed"
+                successes += 1
+            else:
+                target_status[outcome_key] = "failed"
 
         status = "success" if successes == len(normalized_targets) and not aggregate_limited and not observation_limited else "failed"
         limitations = [f"fingerprinted_targets={successes}/{len(normalized_targets)}", f"duration_seconds={time.monotonic()-started_monotonic:.3f}"]
         if aggregate_limited:
             observations = []
+            for key, state in target_status.items():
+                if state == "completed":
+                    target_status[key] = "failed"
             limitations.append(f"aggregate Nmap output exceeded {self.config.max_output_bytes} bytes")
         if observation_limited:
             observations = []
+            for key, state in target_status.items():
+                if state == "completed":
+                    target_status[key] = "failed"
             limitations.append(f"Nmap observations exceeded the run ceiling of {self.config.max_observations}")
-        return ToolResult("fingerprint_services", status, ",".join(f"{host}[{address}]" for host, address, _ in normalized_targets), "\n".join(outputs), "\n".join(errors), 0 if status == "success" else 1, " ; ".join(commands), started, utc_now(), observations, limitations, runner)
+        return ToolResult(
+            "fingerprint_services",
+            status,
+            ",".join(
+                f"{host}[{address}]" for host, address, _ in normalized_targets
+            ),
+            "\n".join(outputs),
+            "\n".join(errors),
+            0 if status == "success" else 1,
+            " ; ".join(commands),
+            started,
+            utc_now(),
+            observations,
+            limitations,
+            runner,
+            target_outcomes=[
+                {
+                    "host": host,
+                    "ip": address,
+                    "ports": ports,
+                    "status": target_status[(host, address, tuple(ports))],
+                    **target_output.get((host, address, tuple(ports)), {}),
+                }
+                for host, address, ports in normalized_targets
+            ],
+        )
 
     def _approved_address_map(
         self,

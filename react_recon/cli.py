@@ -15,6 +15,7 @@ from .analysis import analyze_run
 from .executor import Executor
 from .files import harden_artifacts
 from .models import RunConfig
+from .providers import redact_provider_error, resolve_provider_model
 from .reporting import write_report
 from .reprocess import reprocess_run
 from .runtime import run_bounded_process
@@ -32,6 +33,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_run_args(run)
     run.add_argument("--provider", choices=["openai", "anthropic"], help="AI provider override (defaults to REACT_RECON_AI_PROVIDER)")
     run.add_argument("--model", help="model override (defaults to REACT_RECON_AI_MODEL or the provider default)")
+    run.add_argument(
+        "--planning-mode",
+        choices=["hybrid", "deterministic"],
+        default="hybrid",
+        help="hybrid permits up to three model-prioritized typed actions before deterministic fallback",
+    )
+    run.add_argument(
+        "--max-adaptive-actions",
+        type=int,
+        default=3,
+        help="maximum model-prioritized collection actions (0-3)",
+    )
     run.add_argument("--max-targets", type=int, default=10, help="maximum target groups in the analyst brief (1-25)")
     run.add_argument("--reports-dir", default="reports", help="parent directory for the dated domain report folder")
     run.add_argument("--collection-only", action="store_true", help="stop after collection and print only the run ID")
@@ -84,6 +97,7 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _config(args: argparse.Namespace) -> RunConfig:
+    provider, model = resolve_provider_model(args.provider, args.model)
     return RunConfig(
         root_fqdn=args.root_fqdn.lower().rstrip("."),
         mode=args.mode,
@@ -104,6 +118,10 @@ def _config(args: argparse.Namespace) -> RunConfig:
         rate_limit=args.rate_limit,
         dns_rate_limit=args.dns_rate_limit,
         concurrency=args.concurrency,
+        ai_provider=provider,
+        ai_model=model,
+        planning_mode=args.planning_mode,
+        max_adaptive_actions=args.max_adaptive_actions,
     )
 
 
@@ -196,8 +214,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 0
     if args.command == "run":
-        config = _config(args)
         try:
+            config = _config(args)
             config.validate()
         except ValueError as exc:
             print(f"error: {exc}", file=os.sys.stderr)
@@ -222,11 +240,17 @@ def main(argv: Optional[List[str]] = None) -> int:
             analysis_id = None
             analysis_error = None
             try:
-                analysis_id = analyze_run(store, run_id, provider=args.provider, model=args.model, max_targets=args.max_targets)
+                analysis_id = analyze_run(
+                    store,
+                    run_id,
+                    provider=config.ai_provider,
+                    model=config.ai_model,
+                    max_targets=args.max_targets,
+                )
             except Exception as exc:
                 # Collection evidence remains useful even when the external
                 # model or analysis validation fails. Always render both reports.
-                analysis_error = str(exc)
+                analysis_error = redact_provider_error(exc)
             run = store.get_run(run_id)
             report_dir = _run_report_directory(args.reports_dir, run["root_fqdn"], run["created_at"])
             html_path = write_report(store, run_id, str(report_dir / f"{run_id}.html"), "html")
@@ -249,8 +273,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         evidence_dir = os.environ.get("REACT_RECON_EVIDENCE_DIR", "evidence")
         store = Store(database, evidence_dir)
         try:
-            row = store.get_run(args.run_id)
-            config = RunConfig(**json.loads(row["config_json"]))
+            config = store.run_config(args.run_id)
             try:
                 config.validate()
             except ValueError as exc:

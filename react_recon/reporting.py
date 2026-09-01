@@ -18,12 +18,14 @@ def build_report(store: Store, run_id: str) -> Dict[str, Any]:
     snapshot = store.snapshot(run_id)
     profiles = build_target_profiles(snapshot)
     responsive_web_targets = _responsive_web_targets(profiles)
+    adaptive_decisions = _adaptive_decisions(snapshot["tasks"])
     return {
         "run": snapshot["run"],
         "assets": snapshot["assets"],
         "observations": snapshot["observations"],
         "executions": snapshot["executions"],
         "tasks": snapshot["tasks"],
+        "adaptive_decisions": adaptive_decisions,
         "coverage": {"execution_count": len(snapshot["executions"]), "observation_count": len(snapshot["observations"]), "asset_count": len(snapshot["assets"]), "responsive_web_endpoint_count": len(responsive_web_targets), "baseline": build_coverage(store, run_id)},
         "responsive_web_targets": responsive_web_targets,
         "analysis": store.latest_analysis(run_id),
@@ -56,7 +58,14 @@ def render_html(report: Dict[str, Any], run_id: str) -> str:
         grouped.setdefault(str(observation.get("type", "unknown")), []).append(observation)
     assets = "".join(f"<tr><td>{esc(item.get('host'))}</td><td>{esc(item.get('in_scope'))}</td><td>{esc(item.get('created_at'))}</td></tr>" for item in report["assets"])
     executions = "".join(f"<tr><td>{esc(item.get('tool'))}</td><td class='{status_class(item.get('status'))}'>{esc(item.get('status'))}</td><td>{esc(item.get('target'))}</td><td>{esc(item.get('return_code'))}</td><td>{esc(item.get('runner'))}</td><td>{esc(item.get('started_at'))}</td><td><a href='{evidence_link(item.get('raw_output_path'), report)}'>raw evidence</a></td></tr>" for item in report["executions"])
-    tasks = "".join(f"<tr><td>{esc(item.get('tool'))}</td><td>{esc(item.get('status'))}</td><td><pre>{html.escape(item.get('arguments_json', ''))}</pre></td><td>{esc(item.get('attempts'))}</td></tr>" for item in report["tasks"])
+    tasks = "".join(f"<tr><td>{esc(item.get('phase'))}</td><td>{esc(item.get('tool'))}</td><td>{esc(item.get('status'))}</td><td><pre>{html.escape(item.get('arguments_json', ''))}</pre></td><td>{esc(item.get('attempts'))}</td></tr>" for item in report["tasks"])
+    adaptive_rows = "".join(
+        f"<tr><td>{esc(item.get('tool'))}</td><td>{esc(item.get('status'))}</td>"
+        f"<td>{esc(', '.join(item.get('candidate_ids', [])))}</td><td>{esc(item.get('objective'))}</td>"
+        f"<td>{esc(item.get('made_progress'))}</td><td>{esc(item.get('progress_basis'))}</td>"
+        f"<td>{esc(item.get('stop_reason'))}</td></tr>"
+        for item in report.get("adaptive_decisions", [])[:3]
+    ) or "<tr><td colspan='7'>No adaptive collection action was executed.</td></tr>"
     observation_sections = "".join(observation_group(kind, items, report) for kind, items in sorted(grouped.items()))
     limitations = "".join(f"<li>{html.escape(str(item))}</li>" for item in report["limitations"])
     run = report["run"]
@@ -76,8 +85,9 @@ def render_html(report: Dict[str, Any], run_id: str) -> str:
 <h2>Evidence appendix</h2>
 <details><summary>Asset inventory ({len(report['assets'])})</summary><table><tr><th>Host</th><th>In scope</th><th>Captured</th></tr>{assets}</table></details>
 <details><summary>Execution timeline ({len(report['executions'])})</summary><table><tr><th>Tool</th><th>Status</th><th>Target</th><th>Return code</th><th>Runner</th><th>Started</th><th>Evidence</th></tr>{executions}</table></details>
+<details><summary>Adaptive collection decisions ({len(report.get('adaptive_decisions', []))})</summary><table><tr><th>Tool</th><th>Status</th><th>Candidate IDs</th><th>Objective</th><th>Progress</th><th>Basis</th><th>Stop reason</th></tr>{adaptive_rows}</table></details>
 <details><summary>Normalized observations ({len(report['observations'])})</summary>{observation_sections}</details>
-<details><summary>Planner tasks ({len(report['tasks'])})</summary><table><tr><th>Tool</th><th>Status</th><th>Arguments</th><th>Attempts</th></tr>{tasks}</table></details>
+<details><summary>Planner tasks ({len(report['tasks'])})</summary><table><tr><th>Phase</th><th>Tool</th><th>Status</th><th>Arguments</th><th>Attempts</th></tr>{tasks}</table></details>
 </body></html>"""
 
 
@@ -241,3 +251,40 @@ def _responsive_web_targets(profiles: List[Dict[str, Any]]) -> List[Dict[str, An
             str(item.get("url", "")),
         ),
     )
+
+
+def _adaptive_decisions(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    decisions: List[Dict[str, Any]] = []
+    for task in tasks:
+        if task.get("phase") != "adaptive":
+            continue
+        try:
+            decision = json.loads(task.get("decision_json") or "{}")
+        except json.JSONDecodeError:
+            decision = {}
+        try:
+            progress = json.loads(task.get("progress_json") or "{}")
+        except json.JSONDecodeError:
+            progress = {}
+        decisions.append(
+            {
+                "task_id": task.get("id"),
+                "tool": task.get("tool"),
+                "status": task.get("status"),
+                "provider": decision.get("provider"),
+                "model": decision.get("model"),
+                "candidate_ids": decision.get("candidate_ids", []),
+                "objective": decision.get("objective", ""),
+                "rationale": decision.get("rationale", ""),
+                "expected_observation": decision.get(
+                    "expected_observation", ""
+                ),
+                "stop_condition": decision.get("stop_condition", ""),
+                "error": decision.get("error"),
+                "made_progress": progress.get("made_progress"),
+                "progress_basis": progress.get("progress_basis"),
+                "metrics": progress,
+                "stop_reason": progress.get("stop_reason"),
+            }
+        )
+    return decisions

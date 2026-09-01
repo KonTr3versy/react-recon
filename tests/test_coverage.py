@@ -92,6 +92,7 @@ def test_active_workflow_runs_one_bounded_expansion_then_ports_and_fingerprints(
     config = RunConfig(
         "example.com",
         mode="active",
+        planning_mode="deterministic",
         authorized_networks=["93.184.216.34/32", "1.1.1.1/32"],
         database=str(tmp_path / "run.db"),
         evidence_dir=str(tmp_path / "evidence"),

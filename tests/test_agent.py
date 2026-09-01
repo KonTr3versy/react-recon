@@ -100,6 +100,31 @@ def test_dnsx_command_is_record_explicit_rate_limited_and_wildcard_aware():
     assert command[command.index("-t") + 1] == "3"
 
 
+def test_successful_empty_dns_run_records_attempted_hosts(monkeypatch):
+    from react_recon.executor import Executor
+
+    executor = Executor(RunConfig("example.com"))
+    monkeypatch.setattr(
+        "react_recon.executor.shutil.which", lambda name: f"/usr/bin/{name}"
+    )
+    monkeypatch.setattr(
+        executor,
+        "_run_command",
+        lambda *args, **kwargs: BoundedProcessResult(0, "", ""),
+    )
+
+    result = executor.execute(
+        "resolve_dns", {"hosts": ["example.com", "missing.example.com"]}
+    )
+
+    assert result.status == "success"
+    assert result.observations == []
+    assert result.target_outcomes == [
+        {"host": "example.com", "status": "completed"},
+        {"host": "missing.example.com", "status": "completed"},
+    ]
+
+
 def test_alterx_is_active_only_scope_filtered_and_bounded(tmp_path: Path, monkeypatch):
     from react_recon.executor import Executor
 
@@ -319,6 +344,59 @@ def test_httpx_uses_separate_processes_for_disjoint_host_bindings(monkeypatch):
     assert len(result.observations) == 2
 
 
+def test_httpx_partial_batch_preserves_completed_and_failed_targets(monkeypatch):
+    from react_recon.executor import Executor
+
+    executor = Executor(RunConfig("example.com"))
+    monkeypatch.setattr(
+        "react_recon.executor.shutil.which", lambda name: f"/usr/bin/{name}"
+    )
+
+    def run_bound(command, timeout):
+        input_path = Path(command[command.index("-l") + 1])
+        allow_path = Path(command[command.index("-allow") + 1])
+        host = input_path.read_text(encoding="utf-8").strip()
+        address = allow_path.read_text(encoding="utf-8").strip()
+        if host == "one.example.com":
+            return BoundedProcessResult(
+                0,
+                json.dumps(
+                    {
+                        "url": f"https://{host}",
+                        "input": host,
+                        "host_ip": address,
+                    }
+                )
+                + "\n",
+                "",
+            )
+        return BoundedProcessResult(1, "", "fixture failure")
+
+    monkeypatch.setattr(executor, "_run_command", run_bound)
+    result = executor.execute(
+        "probe_http",
+        {
+            "hosts": ["one.example.com", "two.example.com"],
+            "approved_addresses": {
+                "one.example.com": ["93.184.216.34"],
+                "two.example.com": ["1.1.1.1"],
+            },
+        },
+    )
+
+    assert result.status == "failed"
+    assert len(result.observations) == 1
+    outcomes = {item["host"]: item for item in result.target_outcomes}
+    assert outcomes["one.example.com"]["status"] == "completed"
+    assert outcomes["one.example.com"]["addresses"] == ["93.184.216.34"]
+    assert result.stdout[
+        outcomes["one.example.com"]["stdout_start"] : outcomes[
+            "one.example.com"
+        ]["stdout_end"]
+    ].strip()
+    assert outcomes["two.example.com"]["status"] == "failed"
+
+
 def test_bounded_process_removes_model_keys_and_stops_large_output(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sentinel-openai")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sentinel-anthropic")
@@ -419,6 +497,106 @@ def test_nmap_aggregate_output_limit_fails_closed(monkeypatch):
     assert result.status == "failed"
     assert result.observations == []
     assert any("aggregate Nmap output exceeded" in item for item in result.limitations)
+    assert {item["status"] for item in result.target_outcomes} == {"failed"}
+
+
+def test_nmap_partial_batch_preserves_completed_and_failed_targets(monkeypatch):
+    from react_recon.executor import Executor
+
+    config = RunConfig(
+        "example.com",
+        mode="active",
+        authorized_networks=["93.184.216.34/32", "1.1.1.1/32"],
+    )
+    executor = Executor(config)
+    monkeypatch.setattr(
+        "react_recon.executor.shutil.which",
+        lambda name: "/usr/bin/nmap" if name == "nmap" else None,
+    )
+    xml = "<?xml version='1.0'?><nmaprun><host><address addr='93.184.216.34'/><ports><port protocol='tcp' portid='443'><state state='open'/><service name='https'/></port></ports></host></nmaprun>"
+
+    def run_nmap(command, timeout):
+        if command[-1] == "93.184.216.34":
+            return BoundedProcessResult(0, xml, "")
+        return BoundedProcessResult(1, "", "fixture failure")
+
+    monkeypatch.setattr(executor, "_run_command", run_nmap)
+    result = executor.execute(
+        "fingerprint_services",
+        {
+            "targets": [
+                {
+                    "host": "one.example.com",
+                    "ip": "93.184.216.34",
+                    "ports": [443],
+                },
+                {
+                    "host": "two.example.com",
+                    "ip": "1.1.1.1",
+                    "ports": [8443],
+                },
+            ]
+        },
+    )
+
+    assert result.status == "failed"
+    assert len(result.observations) == 1
+    outcomes = {item["host"]: item for item in result.target_outcomes}
+    assert outcomes["one.example.com"]["status"] == "completed"
+    assert outcomes["one.example.com"]["ip"] == "93.184.216.34"
+    assert result.stdout[
+        outcomes["one.example.com"]["stdout_start"] : outcomes[
+            "one.example.com"
+        ]["stdout_end"]
+    ] == xml
+    assert outcomes["two.example.com"]["status"] == "failed"
+
+
+def test_nmap_direct_output_limit_invalidates_prior_completion(monkeypatch):
+    from react_recon.executor import Executor
+
+    config = RunConfig(
+        "example.com",
+        mode="active",
+        authorized_networks=["93.184.216.34/32", "1.1.1.1/32"],
+    )
+    executor = Executor(config)
+    monkeypatch.setattr(
+        "react_recon.executor.shutil.which",
+        lambda name: "/usr/bin/nmap" if name == "nmap" else None,
+    )
+    xml = "<?xml version='1.0'?><nmaprun></nmaprun>"
+    calls = 0
+
+    def run_nmap(command, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return BoundedProcessResult(0, xml, "")
+        return BoundedProcessResult(1, "truncated", "", output_limited=True)
+
+    monkeypatch.setattr(executor, "_run_command", run_nmap)
+    result = executor.execute(
+        "fingerprint_services",
+        {
+            "targets": [
+                {
+                    "host": "one.example.com",
+                    "ip": "93.184.216.34",
+                    "ports": [443],
+                },
+                {
+                    "host": "two.example.com",
+                    "ip": "1.1.1.1",
+                    "ports": [443],
+                },
+            ]
+        },
+    )
+
+    assert result.status == "failed"
+    assert result.observations == []
+    assert {item["status"] for item in result.target_outcomes} == {"failed"}
 
 
 def test_nmap_adds_ipv6_mode_for_bound_ipv6_target(monkeypatch):

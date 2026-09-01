@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import stat
 import tempfile
@@ -167,6 +168,10 @@ def test_stale_dns_binding_is_not_approved_for_downstream_execution(tmp_path):
             "UPDATE observations SET created_at='2000-01-01T00:00:00+00:00' WHERE run_id=?",
             (run_id,),
         )
+        store.conn.execute(
+            "UPDATE dns_snapshots SET captured_at='2000-01-01T00:00:00+00:00' WHERE run_id=?",
+            (run_id,),
+        )
         store.conn.commit()
         assert store.approved_targets(run_id, config) == []
 
@@ -183,6 +188,176 @@ def test_stale_dns_binding_is_not_approved_for_downstream_execution(tmp_path):
         )
         assert store.approved_targets(run_id, config) == [
             {"host": "app.example.com", "addresses": ["93.184.216.34"]}
+        ]
+    finally:
+        store.close()
+
+
+def test_fresh_successful_empty_dns_snapshot_supersedes_positive_answer(tmp_path):
+    store = Store(str(tmp_path / "run.db"), str(tmp_path / "evidence"))
+    try:
+        config = RunConfig("example.com")
+        run_id = store.create_run(config)
+        store.record_result(
+            run_id,
+            ToolResult(
+                "resolve_dns",
+                "success",
+                "app.example.com",
+                observations=[
+                    {
+                        "type": "dns_a",
+                        "host": "app.example.com",
+                        "value": "93.184.216.34",
+                    }
+                ],
+            ),
+        )
+        assert store.approved_targets(run_id, config)
+
+        store.record_result(
+            run_id,
+            ToolResult(
+                "resolve_dns",
+                "success",
+                "app.example.com",
+                target_outcomes=[
+                    {"host": "app.example.com", "status": "completed"}
+                ],
+            ),
+        )
+
+        assert store.approved_targets(run_id, config) == []
+    finally:
+        store.close()
+
+
+def test_latest_fresh_dns_snapshot_supersedes_stale_address_and_cdn_rows(tmp_path):
+    store = Store(str(tmp_path / "run.db"), str(tmp_path / "evidence"))
+    try:
+        config = RunConfig(
+            "example.com",
+            mode="active",
+            authorized_networks=["93.184.216.34/32"],
+            max_dns_binding_age_seconds=60,
+        )
+        run_id = store.create_run(config)
+        store.record_result(
+            run_id,
+            ToolResult(
+                "resolve_dns",
+                "success",
+                "app.example.com",
+                finished_at="2000-01-01T00:00:00+00:00",
+                observations=[
+                    {
+                        "type": "dns_a",
+                        "host": "app.example.com",
+                        "value": "8.8.8.8",
+                    },
+                    {
+                        "type": "dns_cname",
+                        "host": "app.example.com",
+                        "value": "shared.vendor.example.net",
+                    },
+                    {
+                        "type": "dns_cdn",
+                        "host": "app.example.com",
+                        "value": "fixture-cdn",
+                    },
+                ],
+            ),
+        )
+        store.record_result(
+            run_id,
+            ToolResult(
+                "resolve_dns",
+                "success",
+                "app.example.com",
+                observations=[
+                    {
+                        "type": "dns_a",
+                        "host": "app.example.com",
+                        "value": "93.184.216.34",
+                    }
+                ],
+            ),
+        )
+
+        assert store.approved_targets(run_id, config, active=True) == [
+            {"host": "app.example.com", "addresses": ["93.184.216.34"]}
+        ]
+    finally:
+        store.close()
+
+
+def test_candidate_hosts_prioritize_root_and_exact_authorized_seeds(tmp_path):
+    store = Store(str(tmp_path / "run.db"), str(tmp_path / "evidence"))
+    try:
+        config = RunConfig(
+            "example.com",
+            authorized_hosts=["vpn.vendor.example.net"],
+            max_assets=3,
+        )
+        run_id = store.create_run(config)
+        store.record_result(
+            run_id,
+            ToolResult(
+                "discover_subdomains",
+                "success",
+                "example.com",
+                observations=[
+                    {"type": "hostname", "value": "a.example.com"},
+                    {
+                        "type": "hostname",
+                        "value": "child.vpn.vendor.example.net",
+                    },
+                ],
+            ),
+        )
+
+        assert store.candidate_hosts(run_id, limit=1) == ["example.com"]
+        assert store.candidate_hosts(run_id, limit=3) == [
+            "example.com",
+            "vpn.vendor.example.net",
+            "a.example.com",
+        ]
+        assert "child.vpn.vendor.example.net" not in store.candidate_hosts(run_id)
+    finally:
+        store.close()
+
+
+def test_asset_budget_must_fit_all_operator_supplied_seeds():
+    with pytest.raises(ValueError, match="root_fqdn and every explicit"):
+        RunConfig(
+            "example.com",
+            authorized_hosts=["vpn.vendor.example.net"],
+            max_assets=1,
+        ).validate()
+
+
+def test_legacy_run_expands_asset_budget_only_to_fit_existing_seeds(tmp_path):
+    store = Store(str(tmp_path / "run.db"), str(tmp_path / "evidence"))
+    try:
+        config = RunConfig(
+            "example.com",
+            authorized_hosts=["vpn.vendor.example.net"],
+            max_assets=2,
+        )
+        run_id = store.create_run(config)
+        payload = json.loads(store.get_run(run_id)["config_json"])
+        payload["max_assets"] = 1
+        store.conn.execute(
+            "UPDATE runs SET config_json=? WHERE id=?",
+            (json.dumps(payload), run_id),
+        )
+        store.conn.commit()
+
+        resumed = store.run_config(run_id)
+        assert resumed.max_assets == 2
+        assert store.candidate_hosts(run_id, resumed.max_assets) == [
+            "example.com",
+            "vpn.vendor.example.net",
         ]
     finally:
         store.close()
@@ -390,5 +565,63 @@ def test_existing_analysis_table_is_migrated_with_openai_provider(tmp_path):
     try:
         row = store.conn.execute("SELECT provider FROM analysis_runs WHERE id='analysis-old'").fetchone()
         assert row["provider"] == "openai"
+    finally:
+        store.close()
+
+
+def test_legacy_run_and_task_schema_resume_deterministically(tmp_path):
+    database = tmp_path / "legacy-run.db"
+    connection = sqlite3.connect(database)
+    connection.executescript(
+        """
+        CREATE TABLE runs (id TEXT PRIMARY KEY, root_fqdn TEXT, mode TEXT, config_json TEXT, status TEXT, created_at TEXT, updated_at TEXT);
+        CREATE TABLE tasks (id TEXT PRIMARY KEY, run_id TEXT, tool TEXT, arguments_json TEXT, status TEXT, attempts INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
+        """
+    )
+    legacy_config = RunConfig("example.com").__dict__
+    for field in (
+        "ai_provider",
+        "ai_model",
+        "planning_mode",
+        "max_adaptive_actions",
+    ):
+        legacy_config.pop(field)
+    connection.execute(
+        "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "run-legacy",
+            "example.com",
+            "passive",
+            json.dumps(legacy_config),
+            "stopped",
+            "now",
+            "now",
+        ),
+    )
+    connection.execute(
+        "INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "task-legacy",
+            "run-legacy",
+            "crtsh_search",
+            "{}",
+            "completed",
+            1,
+            "now",
+            "now",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    store = Store(str(database), str(tmp_path / "evidence"))
+    try:
+        config = store.run_config("run-legacy")
+        assert config.planning_mode == "deterministic"
+        assert config.max_adaptive_actions == 0
+        task = store.task_records("run-legacy")[0]
+        assert task["phase"] == "coverage"
+        assert task["decision_json"] == "{}"
+        assert task["progress_json"] is None
     finally:
         store.close()

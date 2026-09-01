@@ -35,6 +35,12 @@ class RunConfig:
     rate_limit: int = 10
     dns_rate_limit: int = 50
     concurrency: int = 2
+    # The same resolved provider/model pair is used for bounded adaptive
+    # collection planning and the final evidence-backed analyst brief.
+    ai_provider: str = "openai"
+    ai_model: str = ""
+    planning_mode: str = "hybrid"
+    max_adaptive_actions: int = 3
     database: str = "react-recon.db"
     evidence_dir: str = "evidence"
     # An empty value selects Executor's immutable per-tool image manifest.
@@ -44,11 +50,28 @@ class RunConfig:
     def validate(self) -> None:
         if self.mode not in {"passive", "active"}:
             raise ValueError("mode must be passive or active")
+        if self.planning_mode not in {"hybrid", "deterministic"}:
+            raise ValueError("planning_mode must be hybrid or deterministic")
+        self.ai_provider = self.ai_provider.strip().lower()
+        if self.ai_provider not in {"openai", "anthropic"}:
+            raise ValueError("ai_provider must be openai or anthropic")
+        if not self.ai_model:
+            # Import locally to keep the data model independent of SDK imports.
+            from .providers import resolve_provider_model
+
+            _, self.ai_model = resolve_provider_model(self.ai_provider)
+        if not 0 <= self.max_adaptive_actions <= 3:
+            raise ValueError("max_adaptive_actions must be between 0 and 3")
         self.root_fqdn = normalize_host(self.root_fqdn)
         if _is_ip(self.root_fqdn) or "." not in self.root_fqdn:
             raise ValueError("root_fqdn must be a fully qualified domain name")
         self.authorized_hosts = [normalize_host(item) for item in self.authorized_hosts]
         self.authorized_networks = [normalize_network(item) for item in self.authorized_networks]
+        mandatory_hosts = {self.root_fqdn, *self.authorized_hosts}
+        if len(mandatory_hosts) > self.max_assets:
+            raise ValueError(
+                "max_assets must accommodate the root_fqdn and every explicit authorized_host"
+            )
         if self.mode == "active" and not self.authorized_networks:
             raise ValueError(
                 "active mode requires at least one authorized_network for port and service probing"
@@ -98,6 +121,10 @@ class ToolResult:
     observations: List[Dict[str, Any]] = field(default_factory=list)
     limitations: List[str] = field(default_factory=list)
     runner: str = "host"
+    # Batched adapters use controller-owned outcomes to distinguish completed,
+    # failed, and not-yet-attempted targets. This prevents one failed member of
+    # a batch from invalidating successful negative coverage for every member.
+    target_outcomes: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from .parsers import parse_alterx, parse_crtsh, parse_dnsx, parse_gau, parse_httpx, parse_naabu, parse_nmap, parse_subfinder
+from .scope import normalize_host
 from .storage import Store
 
 
@@ -80,7 +81,20 @@ def reprocess_run(store: Store, run_id: str) -> Dict[str, Any]:
             raise ValueError(f"evidence stdout is not text: {path}")
         if len(stdout.encode("utf-8")) > config.max_output_bytes:
             raise ValueError(f"evidence stdout exceeds the configured output ceiling: {path}")
-        observations = parser(stdout) if execution["status"] == "success" else []
+        outcomes = record.get("target_outcomes", [])
+        if isinstance(outcomes, list) and outcomes and tool in {
+            "probe_http",
+            "probe_permutation_http",
+        }:
+            observations = _parse_completed_http_targets(stdout, outcomes)
+        elif (
+            isinstance(outcomes, list)
+            and outcomes
+            and tool == "fingerprint_services"
+        ):
+            observations = _parse_completed_nmap_targets(stdout, outcomes)
+        else:
+            observations = parser(stdout) if execution["status"] == "success" else []
         if sum(len(items) for items in replacements.values()) + len(observations) > config.max_observations:
             raise ValueError(f"reprocessed observations exceed the run ceiling of {config.max_observations}")
         replacements[execution["id"]] = observations
@@ -97,3 +111,129 @@ def _parse_nmap_documents(text: str) -> List[Dict[str, Any]]:
     for document in documents:
         observations.extend(parse_nmap(document))
     return observations
+
+
+def _target_stdout(text: str, outcome: Dict[str, Any]) -> str:
+    start = outcome.get("stdout_start")
+    end = outcome.get("stdout_end")
+    if (
+        isinstance(start, bool)
+        or isinstance(end, bool)
+        or not isinstance(start, int)
+        or not isinstance(end, int)
+        or start < 0
+        or end < start
+        or end > len(text)
+    ):
+        raise ValueError("completed target has invalid raw-output boundaries")
+    return text[start:end]
+
+
+def _parse_completed_http_targets(
+    text: str, outcomes: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    observations: List[Dict[str, Any]] = []
+    for outcome in outcomes:
+        if not isinstance(outcome, dict) or outcome.get("status") != "completed":
+            continue
+        try:
+            host = normalize_host(str(outcome.get("host", "")))
+            raw_addresses = outcome.get("addresses", [])
+            if not isinstance(raw_addresses, list):
+                raise ValueError("addresses must be a list")
+            addresses = {
+                normalize_host(str(item))
+                for item in raw_addresses
+            }
+        except (TypeError, ValueError):
+            raise ValueError("completed HTTP target has invalid binding metadata")
+        if not addresses:
+            raise ValueError("completed HTTP target has no approved addresses")
+        for observation in parse_httpx(_target_stdout(text, outcome)):
+            if observation.get("type") == "http_probe_failure":
+                try:
+                    observed_host = normalize_host(
+                        str(observation.get("host", ""))
+                    )
+                except ValueError:
+                    continue
+                if observed_host == host:
+                    observations.append(observation)
+                continue
+            metadata = (
+                observation.get("metadata")
+                if isinstance(observation.get("metadata"), dict)
+                else {}
+            )
+            try:
+                observed_host = normalize_host(
+                    str(metadata.get("input") or metadata.get("host") or "")
+                )
+                observed_address = normalize_host(
+                    str(metadata.get("host_ip") or metadata.get("ip") or "")
+                )
+            except ValueError:
+                continue
+            if observed_host == host and observed_address in addresses:
+                observations.append(observation)
+    return _dedupe_observations(observations)
+
+
+def _parse_completed_nmap_targets(
+    text: str, outcomes: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    observations: List[Dict[str, Any]] = []
+    for outcome in outcomes:
+        if not isinstance(outcome, dict) or outcome.get("status") != "completed":
+            continue
+        try:
+            host = normalize_host(str(outcome.get("host", "")))
+            address = normalize_host(str(outcome.get("ip", "")))
+            raw_ports = outcome.get("ports", [])
+            if not isinstance(raw_ports, list):
+                raise ValueError("ports must be a list")
+            ports = set()
+            for raw_port in raw_ports:
+                if isinstance(raw_port, bool):
+                    raise ValueError("port must be an integer")
+                port = int(raw_port)
+                if not 1 <= port <= 65535:
+                    raise ValueError("port is outside the TCP range")
+                ports.add(port)
+        except (TypeError, ValueError):
+            raise ValueError("completed Nmap target has invalid binding metadata")
+        if not ports:
+            raise ValueError("completed Nmap target has no approved ports")
+        for observation in parse_nmap(_target_stdout(text, outcome)):
+            try:
+                observed_addresses = {
+                    normalize_host(str(item))
+                    for item in observation.get("addresses", [])
+                }
+                port = int(observation.get("port", 0))
+            except (TypeError, ValueError):
+                continue
+            if address not in observed_addresses or port not in ports:
+                continue
+            observations.append(
+                {
+                    **observation,
+                    "host": host,
+                    "ip": address,
+                    "addresses": [address],
+                }
+            )
+    return _dedupe_observations(observations)
+
+
+def _dedupe_observations(
+    observations: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    seen = set()
+    result = []
+    for observation in observations:
+        key = json.dumps(observation, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            result.append(observation)
+    return result

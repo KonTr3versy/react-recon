@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from react_recon.analysis import AnthropicReconAnalyst, OpenAIReconAnalyst, analyze_run, build_analyst
+from react_recon.analysis import ANALYSIS_SCHEMA, AnthropicReconAnalyst, OpenAIReconAnalyst, analyze_run, build_analyst
 from react_recon.models import RunConfig, ToolResult
 from react_recon.profiles import build_target_profiles
 from react_recon.reporting import write_report
@@ -95,6 +95,25 @@ class InvalidActiveFollowUpAnalyst(FixtureAnalyst):
 
 class ActiveModeFollowUpAnalyst(FixtureAnalyst):
     pass
+
+
+def test_analysis_schema_uses_provider_compatible_nullable_fields():
+    def assert_no_type_arrays(value):
+        if isinstance(value, dict):
+            assert not isinstance(value.get("type"), list)
+            for child in value.values():
+                assert_no_type_arrays(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_no_type_arrays(child)
+
+    assert_no_type_arrays(ANALYSIS_SCHEMA)
+
+
+def test_analysis_schema_transforms_with_installed_anthropic_sdk():
+    anthropic = pytest.importorskip("anthropic")
+    transformed = anthropic.transform_schema(ANALYSIS_SCHEMA)
+    assert transformed["properties"]["active_follow_up_candidates"]
 
 
 def _store_with_recon(tmp_path: Path) -> tuple[Store, str]:

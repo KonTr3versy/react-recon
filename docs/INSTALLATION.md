@@ -127,9 +127,9 @@ uv run react-recon preflight
 uv run pytest
 ```
 
-## 4. Configure model analysis
+## 4. Configure model planning and analysis
 
-Collection works without a model-provider key. Install the provider you intend to use:
+Deterministic collection works without a model-provider key. Active hybrid planning and the final targeting brief require the provider you intend to use:
 
 ```bash
 uv sync --extra openai
@@ -138,7 +138,7 @@ uv sync --extra anthropic
 uv sync --extra all-models
 ```
 
-To enable the post-run targeting brief:
+To enable active hybrid planning and the post-run targeting brief:
 
 ```bash
 cp .env.example .env
@@ -154,6 +154,18 @@ set +a
 ```
 
 Do not commit `.env`, shell history containing a key, assessment databases, evidence, or reports.
+
+For collection without any model request, use deterministic planning and stop
+before analysis/report generation:
+
+```bash
+uv run react-recon run \
+  --root-fqdn example.com \
+  --mode active \
+  --planning-mode deterministic \
+  --authorized-network 203.0.113.0/24 \
+  --collection-only
+```
 
 See [Model providers](MODEL_PROVIDERS.md) for provider-specific commands and defaults.
 
