@@ -14,6 +14,11 @@ DRY_RUN=false
 FORCE=false
 CONFIGURE=false
 
+# Provider credentials are not inputs to apt, Go builds, preflight, or tests.
+# Remove inherited values before any child process is started; optional model
+# configuration happens at the very end in a separate masked prompt.
+unset OPENAI_API_KEY ANTHROPIC_API_KEY
+
 usage() {
   cat <<EOF
 Install react-recon and its validated reconnaissance tools on Kali Linux.
@@ -57,6 +62,18 @@ require_command() {
   local remediation="$2"
 
   command -v "${command_name}" >/dev/null 2>&1 || die "${command_name} is required. ${remediation}"
+}
+
+require_go_version() {
+  local minimum_minor="25"
+  local version_output version major minor
+  version_output="$(go version)" || die "could not determine the installed Go version"
+  version="$(printf '%s\n' "${version_output}" | /usr/bin/sed -n 's/.* go\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')"
+  read -r major minor <<<"${version}"
+  [[ -n "${major:-}" && -n "${minor:-}" ]] || die "could not parse Go version from: ${version_output}"
+  if ((major < 1 || (major == 1 && minor < minimum_minor))); then
+    die "Go 1.${minimum_minor}+ is required by the pinned dnsx release; found Go ${major}.${minor}. Install a current Go toolchain and rerun the installer."
+  fi
 }
 
 verify_sha256() {
@@ -167,9 +184,10 @@ run sudo apt-get update
 run sudo apt-get install -y ca-certificates coreutils curl git golang-go nmap tar
 
 if [[ "${DRY_RUN}" == true ]]; then
-  printf '+ verify go is installed and available in PATH\n'
+  printf '+ verify go 1.25 or newer is installed and available in PATH\n'
 else
   require_command go "Install a supported Go toolchain, ensure go is available in PATH, then rerun this installer."
+  require_go_version
 fi
 
 run mkdir -p "${INSTALL_BIN_DIR}"
@@ -202,8 +220,9 @@ install_go_tool() {
 
 printf 'Installing validated reconnaissance binaries...\n'
 install_go_tool subfinder github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.16.0
-install_go_tool dnsx github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.3
+install_go_tool dnsx github.com/projectdiscovery/dnsx/cmd/dnsx@v1.3.0
 install_go_tool httpx github.com/projectdiscovery/httpx/cmd/httpx@v1.10.0
+install_go_tool alterx github.com/projectdiscovery/alterx/cmd/alterx@v0.1.0
 install_go_tool naabu github.com/projectdiscovery/naabu/v2/cmd/naabu@v2.6.1
 install_go_tool gau github.com/lc/gau/v2/cmd/gau@v2.2.4
 
@@ -218,24 +237,21 @@ esac
 printf 'Installing react-recon...\n'
 run uv "${sync_args[@]}"
 
+printf 'Validating the installation...\n'
+run uv run react-recon preflight
+run uv run pytest
+
+# Collect credentials only after every installer, dependency, preflight, and
+# test process has exited. The generated file is never sourced by this script,
+# so provider keys cannot leak into unrelated validation subprocesses.
 if [[ "${CONFIGURE}" == true ]]; then
   printf 'Configuring optional LLM analysis...\n'
   if [[ "${DRY_RUN}" == true ]]; then
     printf '+ %q --provider %q\n' "${REPO_ROOT}/scripts/configure-provider.sh" "${PROVIDER}"
   else
     "${REPO_ROOT}/scripts/configure-provider.sh" --provider "${PROVIDER}"
-    # The generated file contains shell-escaped values and is safe to load for
-    # the non-networking preflight check performed below.
-    set -a
-    # shellcheck disable=SC1091
-    source "${REPO_ROOT}/.env"
-    set +a
   fi
 fi
-
-printf 'Validating the installation...\n'
-run uv run react-recon preflight
-run uv run pytest
 
 cat <<EOF
 

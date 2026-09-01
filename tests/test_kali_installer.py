@@ -39,14 +39,22 @@ def test_kali_installer_dry_run_is_non_mutating_and_pinned() -> None:
     result = run_installer("--dry-run", "--provider", "none")
     assert result.returncode == 0, result.stderr
     assert "apt-get install" in result.stdout
-    assert "verify go is installed" in result.stdout
+    assert "verify go 1.25 or newer" in result.stdout
     assert "subfinder@v2.16.0" in result.stdout
+    assert "dnsx@v1.3.0" in result.stdout
     assert "httpx@v1.10.0" in result.stdout
+    assert "alterx@v0.1.0" in result.stdout
     assert "uv 0.12.7 release archive" in result.stdout
     assert "verify archive SHA-256" in result.stdout
     assert "astral.sh/uv/install.sh" not in result.stdout
     assert "uv sync --extra test" in result.stdout
     assert "--extra openai" not in result.stdout
+
+
+def test_kali_installer_sanitizes_keys_and_configures_only_after_validation() -> None:
+    script = INSTALLER.read_text(encoding="utf-8")
+    assert "unset OPENAI_API_KEY ANTHROPIC_API_KEY" in script
+    assert script.index("run uv run pytest") < script.index("Configuring optional LLM analysis")
 
 
 def test_kali_installer_rejects_unknown_provider() -> None:
@@ -74,6 +82,30 @@ def test_kali_installer_reports_missing_go() -> None:
     assert "go is required" in result.stderr
     assert "Install Go" in result.stderr
     assert "PATH" in result.stderr
+
+
+def test_kali_installer_rejects_go_that_is_too_old(tmp_path: Path) -> None:
+    shim = tmp_path / "go"
+    shim.write_text("#!/bin/sh\nprintf '%s\\n' 'go version go1.24.7 linux/amd64'\n")
+    shim.chmod(0o755)
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; PATH="$2"; require_go_version',
+            "bash",
+            str(INSTALLER),
+            str(tmp_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Go 1.25+ is required" in result.stderr
+    assert "found Go 1.24" in result.stderr
 
 
 def test_kali_installer_accepts_matching_sha256(tmp_path: Path) -> None:

@@ -10,7 +10,9 @@ root FQDN
    +--> gau ------------+                           |
                                                     +--> normalized evidence
                                                                |
-authorized active mode --> Naabu --> observed ports --> Nmap --+
+authorized active mode --> bounded AlterX --> DNS --> HTTP -----+
+                                  |                              |
+                                  +--> verified eligible hosts --> Naabu --> observed ports --> Nmap
                                                                |
                                                                +--> LLM targeting brief
 ```
@@ -30,9 +32,9 @@ This is an alpha-quality practitioner tool. The parser and controller paths are 
 - [`uv`](https://docs.astral.sh/uv/) for installation and execution
 - A current supported Go toolchain if installing host binaries from source
 - Subfinder, dnsx, httpx, and gau for passive collection
-- Naabu for active port discovery
+- AlterX and Naabu for active expansion and port discovery
 - Nmap or Docker for active service fingerprinting
-- An OpenAI or Anthropic API key only when running `react-recon analyze`
+- An OpenAI or Anthropic API key for the default end-to-end `react-recon run` workflow or the standalone `analyze` command
 
 See [Installation](docs/INSTALLATION.md) for exact macOS/Linux commands and the locally tested tool versions.
 
@@ -73,29 +75,52 @@ Choose `REACT_RECON_AI_PROVIDER=openai` with `OPENAI_API_KEY`, or `REACT_RECON_A
 
 ## Basic usage
 
-Passive collection:
+`run` performs collection, LLM analysis, and both report exports in one command.
+Reports are written beneath `reports/<domain>-<run-date>/`.
+
+Passive assessment:
 
 ```bash
 uv run react-recon run --root-fqdn example.com --mode passive
 ```
 
-Authorized active collection requires an explicit allowlist:
+Active mode treats the configured root FQDN and its descendants as the
+authorized boundary. `--authorized-host` is optional and adds an exact target
+outside that boundary; it does not bypass DNS verification. HTTP validation
+accepts globally routable answers or explicitly authorized private addresses.
+Naabu and Nmap require every
+public or private destination to be explicitly named with
+`--authorized-network`:
 
 ```bash
 uv run react-recon run \
   --root-fqdn example.com \
   --mode active \
-  --authorized-host www.example.com \
-  --authorized-host vpn.example.com
+  --authorized-network 203.0.113.0/24
 ```
 
-Analyze and report a completed run:
+Example output:
+
+```text
+reports/example.com-2026-08-31/run-abc123def456.html
+reports/example.com-2026-08-31/run-abc123def456.json
+```
+
+The standalone commands remain available when recovering, reanalyzing with a
+different model, or rendering another copy of an existing run:
 
 ```bash
 uv run react-recon analyze RUN_ID --provider openai --model gpt-5.6-luna --max-targets 8
 uv run react-recon analyze RUN_ID --provider anthropic --model claude-sonnet-5 --max-targets 8
 uv run react-recon report RUN_ID --format html
 uv run react-recon report RUN_ID --format json
+```
+
+To intentionally collect evidence without contacting a model or generating
+reports:
+
+```bash
+uv run react-recon run --root-fqdn example.com --mode passive --collection-only
 ```
 
 Resume an interrupted run or rebuild normalized state from preserved evidence:
@@ -111,24 +136,70 @@ See [Usage](docs/USAGE.md) for scope semantics, budgets, state files, reports, t
 
 ## Collection workflow
 
-The default controller attempts the complete passive baseline in a fixed order:
+The controller attempts the workflow in a fixed, resumable order:
 
 1. crt.sh certificate-transparency names
 2. Subfinder passive subdomain discovery
 3. gau passive URL candidates
 4. dnsx verification of discovered hosts
-5. httpx verification and metadata collection for DNS-resolved hosts
+5. httpx verification of both HTTP and HTTPS plus status, redirect, title,
+   technology, TLS, server, content metadata, favicon/JARM, and response hash
+   collection for DNS-resolved hosts
 
-Active mode then runs Naabu against explicitly authorized hosts. Only normalized host/port pairs observed open are handed to Nmap. Analysis is allowed after every required collection stage has succeeded, failed after bounded retries, or been recorded as not applicable. Failures remain visible as coverage gaps and are never presented as negative security findings.
+Active mode then performs one bounded AlterX expansion using the discovered
+in-scope names, verifies only the new candidates with dnsx and httpx, and runs
+Naabu against DNS-verified eligible hosts. Hosts identified as CDN-backed or
+aliased by CNAME to infrastructure outside the configured boundary are excluded
+from port scans unless the hostname was explicitly added with
+`--authorized-host`. Even explicit hosts must resolve during the run. Only
+normalized host/port pairs observed open are handed to Nmap.
+
+Every destination-touching stage uses the hostname/IP tuples produced by dnsx.
+Bindings expire after one hour by default. httpx receives a per-host IP
+allowlist, Naabu scans the approved IPs rather than
+re-resolving hostnames, and Nmap fingerprints the exact IP/port tuples returned
+by Naabu. A host with a private, loopback, link-local, reserved, or mixed
+authorized/unauthorized answer set is excluded unless its network was named
+with `--authorized-network`. Active port and service stages always require that
+explicit network authorization, including for public IPs.
+
+Analysis begins after every required stage has succeeded, exhausted bounded
+retries, or been recorded as not applicable. Failures remain visible as
+coverage gaps and are never presented as negative security findings. If model
+analysis fails, collection evidence and both reports are still written; the
+command returns a non-zero status and the reports identify the failed analysis
+attempt.
+
+The analyst input and reports distinguish passive candidates, DNS-resolved
+hosts, failed HTTP probes, and confirmed responding web endpoints. Successful
+2xx responses, access-controlled 401/403/407 responses, and 3xx redirects are
+prioritized ahead of DNS-only candidates; other 4xx/5xx responses remain
+evidence that an HTTP service answered without being treated as vulnerabilities.
+At the end of a passive run, the analyst also produces a short
+`Recommended for active follow-up` queue. Each entry identifies an observed
+hostname, an exact observed URL when available, the specific objective for a
+later active run, confidence, and supporting evidence. This queue is omitted
+from active-mode analysis and never treats an unverified passive name as live.
 
 ## Output and data handling
 
 - `react-recon.db`: SQLite run, task, observation, coverage, and analysis state
 - `evidence/RUN_ID/`: append-only raw JSONL execution evidence
-- `reports/RUN_ID.json`: complete machine-readable report
-- `reports/RUN_ID.html`: concise analyst-facing targeting brief
+- `reports/<domain>-<run-date>/RUN_ID.json`: complete machine-readable report
+- `reports/<domain>-<run-date>/RUN_ID.html`: concise analyst-facing targeting brief
 
 These paths are ignored by Git because they may contain client-sensitive data. Do not override those exclusions to publish real assessment artifacts. A sanitized example is available in [`examples/`](examples/README.md).
+
+New databases, evidence files, and reports are created owner-only (`600`), and
+evidence/report directories are private (`700`). Per-process output, total raw
+serialized evidence, and normalized count/byte ceilings fail closed when
+exceeded.
+
+Migrate recognized artifacts created by an older release with:
+
+```bash
+uv run react-recon harden-artifacts
+```
 
 ## Development
 
@@ -142,7 +213,12 @@ The test suite uses fixtures and does not contact external targets. Pull request
 
 ## Security and authorization
 
-Use this tool only where you have explicit authorization and an established scope. Active mode is intentionally restricted to exact `--authorized-host` values. Read [Security](SECURITY.md) before operating or modifying the execution boundary.
+Use this tool only where you have explicit authorization and an established
+scope. Selecting active mode is an operator assertion that the root FQDN and
+its descendants are authorized for DNS and HTTP probing. Bounded TCP probing
+also requires explicit destination CIDRs through `--authorized-network`; exact
+additional hostnames must be named with `--authorized-host`. Read
+[Security](SECURITY.md) before operating or modifying the execution boundary.
 
 ## License
 

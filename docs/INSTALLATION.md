@@ -39,9 +39,10 @@ the validated Go-tool versions. The bootstrap pins uv `0.12.7` and verifies the 
 architecture-specific SHA-256 digest before installing `uv` or `uvx`; an
 unknown architecture or digest mismatch stops installation.
 
-After `apt` completes, the installer verifies that `go` is available in
-`PATH`. If Go installation failed or the executable cannot be resolved, setup
-stops before installing any reconnaissance tools and prints an actionable error.
+After `apt` completes, the installer verifies that Go 1.25 or newer is
+available in `PATH` (required by the pinned dnsx release). If Go is missing or
+too old, setup stops before installing reconnaissance tools and prints an
+actionable error.
 
 ## 1. Install system prerequisites
 
@@ -72,11 +73,12 @@ uv --version
 The host-binary path is the most predictable installation method:
 
 ```bash
-go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-go install github.com/projectdiscovery/httpx/cmd/httpx@latest
-go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
-go install github.com/lc/gau/v2/cmd/gau@latest
+go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.16.0
+go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.3.0
+go install github.com/projectdiscovery/httpx/cmd/httpx@v1.10.0
+go install github.com/projectdiscovery/alterx/cmd/alterx@v0.1.0
+go install github.com/projectdiscovery/naabu/v2/cmd/naabu@v2.6.1
+go install github.com/lc/gau/v2/cmd/gau@v2.2.4
 ```
 
 Ensure Go's binary directory is in `PATH`:
@@ -90,15 +92,24 @@ Versions validated during the initial alpha build:
 | Tool | Validated version |
 | --- | --- |
 | Subfinder | 2.16.0 |
-| dnsx | 1.2.3 |
+| dnsx | 1.3.0 |
 | httpx | 1.10.0 |
+| AlterX | 0.1.0 |
 | Naabu | 2.6.1 |
 | gau | 2.2.4 |
-| Nmap Docker image | `instrumentisto/nmap:latest` reporting Nmap 7.98 |
+| Nmap Docker fallback | `instrumentisto/nmap@sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845` |
 
-The versions are compatibility evidence, not mandatory pins. Run the fixture suite after upgrading a tool because command flags and JSON schemas can change.
+The installer and commands above pin these versions. Run the fixture suite
+before intentionally upgrading a tool because command flags and JSON schemas
+can change.
 
-Nmap service fingerprinting prefers a host `nmap` binary. If it is absent and Docker is running, the controller uses `instrumentisto/nmap:latest`. ProjectDiscovery collectors can use their Docker images when the host binary is unavailable. gau should be installed as a host binary unless you explicitly configure and validate another image.
+Nmap service fingerprinting prefers a host `nmap` binary. If it is absent and
+Docker is running, the controller uses the content-addressed Nmap image above.
+ProjectDiscovery collectors likewise use per-tool immutable image digests when
+their host binaries are unavailable. The container is read-only, drops Linux
+capabilities, enables `no-new-privileges`, and receives only a private,
+read-only input bundle. gau must be installed as a host binary. A custom Docker
+fallback is rejected unless it is supplied as an `@sha256:` digest.
 
 ## 3. Install react-recon
 
@@ -151,14 +162,14 @@ See [Model providers](MODEL_PROVIDERS.md) for provider-specific commands and def
 If `preflight` reports a missing binary, confirm the correct path first:
 
 ```bash
-command -v subfinder dnsx httpx naabu gau
+command -v subfinder dnsx httpx alterx naabu gau
 go env GOPATH
 ```
 
 If Nmap fallback fails, verify Docker is running and the image can be inspected:
 
 ```bash
-docker image inspect instrumentisto/nmap:latest
+docker image inspect 'instrumentisto/nmap@sha256:3cca6ece8de5a571c956022ec6c2cf343da8c4416fa36e1891e8c33623cfc845'
 ```
 
 Tool failures are recorded as collection failures. They do not mean the target lacks the tested service or exposure.

@@ -1,6 +1,6 @@
 import json
 
-from react_recon.parsers import parse_crtsh, parse_dnsx, parse_gau, parse_httpx, parse_naabu, parse_nmap, parse_subfinder
+from react_recon.parsers import parse_alterx, parse_crtsh, parse_dnsx, parse_gau, parse_httpx, parse_naabu, parse_nmap, parse_subfinder
 
 
 def test_subfinder_normalizes_and_deduplicates_hosts():
@@ -11,6 +11,24 @@ def test_subfinder_normalizes_and_deduplicates_hosts():
 def test_dnsx_parses_json_record_arrays():
     output = json.dumps({"host": "app.example.com", "a": ["192.0.2.10"], "mx": ["mail.example.com"]})
     assert {item["type"] for item in parse_dnsx(output)} == {"dns_a", "dns_mx"}
+
+
+def test_dnsx_retains_resolution_enrichment_without_promoting_empty_records():
+    output = "\n".join(
+        [
+            '{"host":"app.example.com","a":["192.0.2.4"],"cname":["edge.example.net"],"cdn-name":"cloudflare","cdn-type":"waf","asn":["AS13335"],"status_code":"NOERROR"}',
+            '{"host":"missing.example.com","status_code":"NXDOMAIN","asn":["AS64500"]}',
+        ]
+    )
+    observations = parse_dnsx(output)
+    assert {item["type"] for item in observations} == {"dns_a", "dns_cname", "dns_cdn", "dns_asn", "dns_status"}
+    assert all(item["host"] == "app.example.com" for item in observations)
+
+
+def test_alterx_normalizes_deduplicates_and_rejects_malformed_candidates():
+    assert parse_alterx("Dev.Example.com.\ndev.example.com\nnot a host\n") == [
+        {"type": "permutation_candidate", "value": "dev.example.com", "generator": "alterx"}
+    ]
 
 
 def test_httpx_and_naabu_handle_structured_and_plain_output():

@@ -486,7 +486,7 @@
     }
   ],
   "run": {
-    "config_json": "{\"root_fqdn\": \"example.com\", \"mode\": \"passive\", \"authorized_hosts\": [], \"max_tool_calls\": 25, \"max_assets\": 500, \"max_duration_seconds\": 1800, \"max_retries\": 2, \"rate_limit\": 10, \"concurrency\": 2, \"database\": \"react-recon.db\", \"evidence_dir\": \"examples/sample-evidence\", \"docker_image\": \"projectdiscovery/recon:latest\"}",
+    "config_json": "{\"root_fqdn\": \"example.com\", \"mode\": \"passive\", \"authorized_hosts\": [], \"authorized_networks\": [], \"max_tool_calls\": 25, \"max_assets\": 500, \"max_permutations\": 2000, \"max_output_bytes\": 16777216, \"max_evidence_bytes\": 67108864, \"max_observations\": 20000, \"max_observation_bytes\": 262144, \"max_normalized_bytes\": 33554432, \"max_dns_binding_age_seconds\": 3600, \"max_duration_seconds\": 1800, \"max_retries\": 2, \"rate_limit\": 10, \"dns_rate_limit\": 50, \"concurrency\": 2, \"database\": \"react-recon.db\", \"evidence_dir\": \"examples/sample-evidence\", \"docker_image\": \"\"}",
     "created_at": "2026-08-30T01:10:27.076637+00:00",
     "id": "run-7192eaab76c5",
     "mode": "passive",

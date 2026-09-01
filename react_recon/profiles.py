@@ -20,6 +20,15 @@ PORT_GROUPS = {
     "remote_management": {22, 23, 3389, 5900, 5985, 5986},
 }
 STANDARD_WEB_PORTS = {80, 443}
+AUTHORIZATION_STATUS_CODES = {401, 403, 407}
+HTTP_RESPONSE_PRIORITY = {
+    "successful": 0,
+    "authorization_boundary": 1,
+    "redirect": 2,
+    "server_error": 3,
+    "other_response": 4,
+    "none": 5,
+}
 
 
 def build_target_profiles(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -136,7 +145,15 @@ def build_target_profiles(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     completed = [_finalize_profile(profile) for profile in profiles.values()]
     priority_order = {"P1": 0, "P2": 1, "P3": 2, "Context": 3}
-    return sorted(completed, key=lambda item: (priority_order[item["deterministic_priority"]], -item["internal_score"], item["host"]))
+    return sorted(
+        completed,
+        key=lambda item: (
+            priority_order[item["deterministic_priority"]],
+            HTTP_RESPONSE_PRIORITY[item["http_response_priority"]],
+            -item["internal_score"],
+            item["host"],
+        ),
+    )
 
 
 def select_analyst_profiles(profiles: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
@@ -156,6 +173,9 @@ def _empty_profile(host: str) -> Dict[str, Any]:
         "candidate_sources": set(),
         "dns": {},
         "http_services": [],
+        "http_responsive": False,
+        "http_status_codes": [],
+        "http_response_priority": "none",
         "http_probe_failures": [],
         "open_ports": [],
         "services": [],
@@ -171,7 +191,10 @@ def _empty_profile(host: str) -> Dict[str, Any]:
 
 def _compact_http_service(url: str, metadata: Dict[str, Any], obs_id: str, evidence_id: str) -> Dict[str, Any]:
     record: Dict[str, Any] = {"url": url, "observation_id": obs_id, "evidence_id": evidence_id}
-    for key in ("status_code", "title", "location", "port", "scheme", "tech", "webserver", "server", "host_ip", "cname", "asn", "tls", "favicon", "jarm", "response_time", "time"):
+    status_code = metadata.get("status_code", metadata.get("status-code"))
+    if str(status_code).isdigit():
+        record["status_code"] = int(status_code)
+    for key in ("title", "location", "port", "scheme", "tech", "webserver", "server", "host_ip", "cname", "asn", "tls", "favicon", "jarm", "response_time", "time", "content_length", "content_type", "hash"):
         if metadata.get(key) not in (None, "", [], {}):
             record[key] = metadata[key]
     return record
@@ -183,6 +206,11 @@ def _finalize_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     profile["open_ports"] = _dedupe_records(profile["open_ports"], ("port", "protocol", "ip"))
     profile["services"] = _dedupe_records(profile["services"], ("port", "protocol", "service", "product", "version"))
     profile["http_services"] = _dedupe_records(profile["http_services"], ("url", "status_code", "location"))
+    profile["http_status_codes"] = sorted(
+        {int(service["status_code"]) for service in profile["http_services"] if str(service.get("status_code", "")).isdigit()}
+    )
+    profile["http_responsive"] = bool(profile["http_services"])
+    profile["http_response_priority"] = _best_http_response_priority(profile["http_status_codes"])
     profile["http_probe_failures"] = _dedupe_records(profile["http_probe_failures"], ("observation_id",))
     profile["url_samples"] = sorted(profile["url_samples"])
     profile["url_extensions"] = dict(profile["url_extensions"].most_common(10))
@@ -216,6 +244,22 @@ def _interest_signals(profile: Dict[str, Any]) -> List[Dict[str, Any]]:
     def add(code: str, label: str, reason: str, weight: int) -> None:
         signals.append({"code": code, "label": label, "reason": reason, "weight": weight, **references})
 
+    # A completed HTTP exchange is stronger targeting evidence than a passive
+    # hostname or DNS record. Use one best-response signal per host so multiple
+    # schemes do not inflate priority merely by returning similar responses.
+    response_priority = profile["http_response_priority"]
+    statuses = ", ".join(str(code) for code in profile["http_status_codes"]) or "unknown"
+    if response_priority == "successful":
+        add("http_success", "Responding web application", f"Observed successful HTTP response status: {statuses}.", 20)
+    elif response_priority == "authorization_boundary":
+        add("http_authorization_boundary", "Responding access-controlled web endpoint", f"Observed HTTP response requiring or denying authorization: {statuses}.", 22)
+    elif response_priority == "redirect":
+        add("http_redirect", "Responding redirecting web endpoint", f"Observed HTTP redirect response status: {statuses}.", 18)
+    elif response_priority == "server_error":
+        add("http_server_error", "Responding web endpoint with server error", f"Observed HTTP server-error response status: {statuses}.", 8)
+    elif response_priority == "other_response":
+        add("http_response", "Responding web endpoint", f"Observed HTTP response status: {statuses}.", 5)
+
     if any(term in all_text for term in REMOTE_ACCESS_TERMS):
         if profile["service_verified"]:
             add("remote_access", "Remote access or identity surface", "A responding service and its metadata indicate an external access boundary.", 35)
@@ -248,6 +292,25 @@ def _interest_signals(profile: Dict[str, Any]) -> List[Dict[str, Any]]:
     if any(service.get("product") or service.get("version") for service in profile["services"]):
         add("explicit_version", "Explicit product or version metadata", "Service fingerprinting returned product or version details for manual review.", 10)
     return signals
+
+
+def _best_http_response_priority(status_codes: List[int]) -> str:
+    classes = {_http_response_class(code) for code in status_codes}
+    if not classes and status_codes:
+        classes.add("other_response")
+    return min(classes or {"none"}, key=lambda item: HTTP_RESPONSE_PRIORITY[item])
+
+
+def _http_response_class(status_code: int) -> str:
+    if 200 <= status_code <= 299:
+        return "successful"
+    if status_code in AUTHORIZATION_STATUS_CODES:
+        return "authorization_boundary"
+    if 300 <= status_code <= 399:
+        return "redirect"
+    if 500 <= status_code <= 599:
+        return "server_error"
+    return "other_response"
 
 
 def _fact_ref(obs_id: str, evidence_id: str, statement: str) -> Dict[str, Any]:

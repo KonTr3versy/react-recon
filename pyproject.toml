@@ -30,6 +30,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["react_recon*"]
 
+[tool.setuptools.package-data]
+react_recon = ["data/*.yaml"]
+
 [project.scripts]
 react-recon = "react_recon.cli:main"
 

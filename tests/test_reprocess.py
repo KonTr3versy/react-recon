@@ -2,6 +2,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from react_recon.models import RunConfig, ToolResult
 from react_recon.reprocess import _parse_nmap_documents, reprocess_run
 from react_recon.storage import Store
@@ -44,3 +46,23 @@ def test_reprocess_parses_concatenated_nmap_xml_documents():
     observations = _parse_nmap_documents(document + "\n" + document)
     assert len(observations) == 2
     assert observations[0]["service"] == "https"
+
+
+def test_reprocess_rejects_legacy_evidence_above_output_ceiling(tmp_path: Path):
+    config = RunConfig(
+        "example.com",
+        database=str(tmp_path / "run.db"),
+        evidence_dir=str(tmp_path / "evidence"),
+        max_output_bytes=32,
+    )
+    store = Store(config.database, config.evidence_dir)
+    try:
+        run_id = store.create_run(config)
+        evidence_id = store.record_result(run_id, ToolResult("discover_subdomains", "success", "example.com"))
+        path = config.evidence_dir + f"/{run_id}/{evidence_id}.jsonl"
+        Path(path).write_text(json.dumps({"run_id": run_id, "tool": "discover_subdomains", "stdout": "x" * 1024}) + "\n")
+
+        with pytest.raises(ValueError, match="output ceiling"):
+            reprocess_run(store, run_id)
+    finally:
+        store.close()

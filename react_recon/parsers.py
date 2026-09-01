@@ -40,12 +40,46 @@ def parse_dnsx(text: str) -> List[Dict[str, Any]]:
         host = item.get("host") or item.get("name")
         if not host:
             continue
+        try:
+            host = normalize_host(str(host))
+        except ValueError:
+            continue
+        has_resolution = False
         for record_type in ("a", "aaaa", "cname", "ns", "mx", "txt"):
             values = item.get(record_type) or item.get(record_type.upper()) or []
             if isinstance(values, str):
                 values = [values]
             for value in values:
                 observations.append({"type": f"dns_{record_type}", "host": host, "value": value})
+                if record_type in {"a", "aaaa", "cname"}:
+                    has_resolution = True
+        # Enrichment is useful only for a hostname that actually resolved.
+        # dnsx uses hyphenated JSON keys for CDN metadata.
+        if has_resolution:
+            cdn_name = item.get("cdn-name", item.get("cdn_name"))
+            cdn_type = item.get("cdn-type", item.get("cdn_type"))
+            if cdn_name or cdn_type:
+                observations.append({"type": "dns_cdn", "host": host, "value": cdn_name or cdn_type, "cdn_type": cdn_type})
+            asn = item.get("asn")
+            if asn not in (None, "", [], {}):
+                observations.append({"type": "dns_asn", "host": host, "value": asn})
+            if item.get("status_code"):
+                observations.append({"type": "dns_status", "host": host, "value": item["status_code"], "resolver": item.get("resolver")})
+    return _dedupe(observations)
+
+
+def parse_alterx(text: str) -> List[Dict[str, Any]]:
+    """Normalize AlterX's line-oriented candidates without treating them as assets."""
+    observations: List[Dict[str, Any]] = []
+    for line in text.splitlines():
+        candidate = line.strip()
+        if not candidate:
+            continue
+        try:
+            host = normalize_host(candidate)
+        except ValueError:
+            continue
+        observations.append({"type": "permutation_candidate", "value": host, "generator": "alterx"})
     return _dedupe(observations)
 
 

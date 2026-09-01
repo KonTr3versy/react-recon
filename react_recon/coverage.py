@@ -8,6 +8,7 @@ from .storage import Store
 
 
 PASSIVE_BASELINE = ("crtsh_search", "discover_subdomains", "retrieve_passive_urls", "resolve_dns", "probe_http")
+ACTIVE_EXPANSION = ("generate_permutations", "resolve_permutations", "probe_permutation_http", "discover_ports")
 
 
 class CoveragePlanner:
@@ -24,14 +25,16 @@ class CoveragePlanner:
                 arguments: Dict[str, Any] = {"root_fqdn": config.root_fqdn} if tool in {"crtsh_search", "discover_subdomains", "retrieve_passive_urls"} else {"hosts": []}
                 return Decision(tool, arguments, rationale=f"complete mandatory baseline step: {tool}")
 
-        if config.mode == "active" and self._needs_attempt("discover_ports", attempts.get("discover_ports", []), config.max_retries):
-            return Decision("discover_ports", {"hosts": list(config.authorized_hosts)}, rationale="enumerate ports on explicitly authorized hosts")
+        if config.mode == "active":
+            for tool in ACTIVE_EXPANSION:
+                if self._needs_attempt(tool, attempts.get(tool, []), config.max_retries):
+                    return Decision(tool, {"hosts": []}, rationale=f"complete bounded active stage: {tool}")
 
         has_open_ports = snapshot.get("observation_counts", {}).get("open_port", 0) > 0
         if config.mode == "active" and has_open_ports and self._needs_attempt("fingerprint_services", attempts.get("fingerprint_services", []), config.max_retries):
             return Decision("fingerprint_services", {}, rationale="fingerprint only ports already observed open")
 
-        return Decision("finish_recon", {"summary": "mandatory baseline attempted"})
+        return Decision("finish_recon", {"summary": "configured deterministic workflow attempted"})
 
     @staticmethod
     def _needs_attempt(tool: str, executions: List[Dict[str, Any]], max_retries: int) -> bool:
@@ -75,15 +78,29 @@ def build_coverage(store: Store, run_id: str) -> Dict[str, Any]:
         elif row["type"] == "service_fingerprint" and isinstance(value.get("host"), str):
             fingerprinted.setdefault(value["host"].lower().rstrip("."), set()).add(int(value.get("port", 0)))
 
+    permutation_candidates = set(store.permutation_candidates(run_id, config.max_permutations))
+    approved_baseline = {
+        item["host"]
+        for item in store.approved_targets(run_id, config, source_tool="resolve_dns")
+    }
+    approved_permutations = {
+        item["host"]
+        for item in store.approved_targets(run_id, config, source_tool="resolve_permutations")
+    }
+    permutation_resolved = set(store.resolved_hosts(run_id, source_tool="resolve_permutations"))
+    active_hosts = set(store.active_scan_hosts(run_id, config, config.max_assets)) if config.mode == "active" else set()
     expected_targets = {
         "resolve_dns": candidate_hosts,
-        "probe_http": resolved_hosts,
-        "discover_ports": {host.lower().rstrip(".") for host in config.authorized_hosts} if config.mode == "active" else set(),
+        "probe_http": approved_baseline,
+        "generate_permutations": set(store.candidate_hosts(run_id, min(config.max_assets, 100))) if config.mode == "active" else set(),
+        "resolve_permutations": permutation_candidates,
+        "probe_permutation_http": approved_permutations,
+        "discover_ports": active_hosts,
         "fingerprint_services": set(open_ports) if config.mode == "active" else set(),
     }
     tools = list(PASSIVE_BASELINE)
     if config.mode == "active":
-        tools.append("discover_ports")
+        tools.extend(ACTIVE_EXPANSION)
         if open_ports:
             tools.append("fingerprint_services")
 
@@ -128,7 +145,11 @@ def build_coverage(store: Store, run_id: str) -> Dict[str, Any]:
         "metrics": {
             "discovered_hosts": len(candidate_hosts),
             "dns_resolved_hosts": len(resolved_hosts),
+            "approved_http_probe_hosts": len(approved_baseline | approved_permutations),
+            "dns_hosts_excluded_by_destination_policy": len(resolved_hosts - approved_baseline) + len(permutation_resolved - approved_permutations),
             "http_responding_hosts": len(http_hosts),
+            "permutation_candidates": len(permutation_candidates),
+            "permutation_resolved_hosts": len(permutation_resolved),
             "hosts_with_open_ports": len(open_ports),
             "open_port_count": sum(len(ports) for ports in open_ports.values()),
             "fingerprinted_service_count": sum(len(ports) for ports in fingerprinted.values()),

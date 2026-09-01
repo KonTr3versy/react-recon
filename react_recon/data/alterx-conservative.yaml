@@ -1,0 +1,28 @@
+patterns:
+  - "{{word}}-{{sub}}.{{suffix}}"
+  - "{{sub}}-{{word}}.{{suffix}}"
+  - "{{word}}.{{sub}}.{{suffix}}"
+  - "{{sub}}.{{word}}.{{suffix}}"
+  - "{{sub}}{{number}}.{{suffix}}"
+
+payloads:
+  word:
+    - admin
+    - api
+    - auth
+    - dev
+    - external
+    - internal
+    - portal
+    - prod
+    - qa
+    - stage
+    - staging
+    - test
+    - uat
+    - vpn
+  number:
+    - "1"
+    - "2"
+    - "01"
+    - "02"
