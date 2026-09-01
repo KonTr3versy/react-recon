@@ -30,7 +30,8 @@ This is an alpha-quality practitioner tool. The parser and controller paths are 
 - macOS, Linux, or Windows through WSL2
 - Python 3.11 or newer
 - [`uv`](https://docs.astral.sh/uv/) for installation and execution
-- A current supported Go toolchain if installing host binaries from source
+- Go 1.25 or newer when installing the pinned host binaries from source or
+  using the Kali bootstrap installer
 - Subfinder, dnsx, httpx, and gau for passive collection
 - AlterX and Naabu for active expansion and port discovery
 - Nmap or Docker for active service fingerprinting
@@ -59,9 +60,14 @@ uv run react-recon preflight
 Create local configuration without placing a key in source control:
 
 ```bash
+uv run react-recon init
 cp .env.example .env
 chmod 600 .env
 ```
+
+`init` creates `.env.example` only when that template is absent. A cloned
+repository already includes the template, so the command will report that it
+exists; copy it to the untracked `.env` file before adding credentials.
 
 Edit `.env`, then load it into the current shell:
 
@@ -114,7 +120,10 @@ uv run react-recon analyze RUN_ID --provider openai --model gpt-5.6-luna --max-t
 uv run react-recon analyze RUN_ID --provider anthropic --model claude-sonnet-5 --max-targets 8
 uv run react-recon report RUN_ID --format html
 uv run react-recon report RUN_ID --format json
+uv run react-recon report RUN_ID --format html --output reports/custom-report.html
 ```
+
+Use `--output` to choose the exact destination for a standalone report render.
 
 To intentionally collect evidence without contacting a model or generating
 reports:
@@ -129,6 +138,11 @@ Resume an interrupted run or rebuild normalized state from preserved evidence:
 uv run react-recon resume RUN_ID
 uv run react-recon reprocess RUN_ID
 ```
+
+`resume` continues the persisted collection loop and prints the run ID when
+collection stops or completes. It does not automatically rerun LLM analysis or
+render new reports; use the standalone `analyze` and `report` commands above
+after recovering an interrupted run.
 
 `reprocess` makes no target or third-party network requests. It applies the current parsers to saved JSONL evidence, atomically rebuilds normalized observations/assets, and marks older analyses stale.
 
