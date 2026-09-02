@@ -90,6 +90,33 @@ def test_run_report_directory_uses_domain_and_run_date():
     assert result == Path("reports/portal.example.com-2026-08-31")
 
 
+def test_progress_events_are_human_readable_and_written_to_stderr(capsys):
+    cli._emit_progress(
+        {
+            "event": "tool_started",
+            "phase": "baseline",
+            "tool": "retrieve_passive_urls",
+            "collector": "gau",
+            "timeout_seconds": 120,
+        }
+    )
+    cli._emit_progress(
+        {
+            "event": "adaptive_progress",
+            "phase": "adaptive",
+            "completed": 2,
+            "total": 3,
+            "tool": "discover_ports",
+            "status": "success",
+        }
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "gau: started" in captured.err
+    assert "timeout_seconds=120" in captured.err
+    assert "active pacing: 2/3" in captured.err
+
+
 def test_active_run_allows_automatic_public_destination_selection():
     args = build_parser().parse_args(
         ["run", "--root-fqdn", "example.com", "--mode", "active"]
@@ -189,9 +216,10 @@ def test_run_collects_analyzes_and_writes_both_reports(monkeypatch, tmp_path, ca
     calls = {"analysis": [], "reports": []}
 
     class FixtureAgent:
-        def __init__(self, store, config):
+        def __init__(self, store, config, progress=None):
             self.store = store
             self.config = config
+            self.progress = progress
 
         def run(self):
             run_id = self.store.create_run(self.config)
@@ -250,9 +278,10 @@ def test_run_still_writes_both_reports_when_analysis_fails(monkeypatch, tmp_path
     reports = tmp_path / "reports"
 
     class FixtureAgent:
-        def __init__(self, store, config):
+        def __init__(self, store, config, progress=None):
             self.store = store
             self.config = config
+            self.progress = progress
 
         def run(self):
             run_id = self.store.create_run(self.config)

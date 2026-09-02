@@ -68,6 +68,39 @@ def test_fixture_run_persists_execution_and_observation(tmp_path: Path):
         store.close()
 
 
+def test_agent_emits_collector_lifecycle_progress(tmp_path: Path):
+    config = RunConfig(
+        "example.com",
+        database=str(tmp_path / "run.db"),
+        evidence_dir=str(tmp_path / "evidence"),
+    )
+    store = Store(config.database, config.evidence_dir)
+    events = []
+    try:
+        ReconAgent(
+            store,
+            config,
+            FixturePlanner(),
+            FixtureExecutor(),
+            progress=events.append,
+        ).run()
+    finally:
+        store.close()
+
+    assert events[0] == {
+        "event": "tool_started",
+        "phase": "custom",
+        "tool": "discover_subdomains",
+        "collector": "subfinder",
+        "timeout_seconds": 180,
+    }
+    assert events[1]["event"] == "tool_completed"
+    assert events[1]["collector"] == "subfinder"
+    assert events[1]["status"] == "success"
+    assert events[1]["observations"] == 1
+    assert events[1]["timed_out"] is False
+
+
 def test_active_port_discovery_is_not_allowed_in_passive_mode(tmp_path: Path):
     from react_recon.executor import Executor
     config = RunConfig("example.com", database=str(tmp_path / "run.db"), evidence_dir=str(tmp_path / "evidence"))
@@ -504,6 +537,70 @@ def test_bounded_process_removes_model_keys_and_stops_large_output(monkeypatch):
     )
     assert oversized.output_limited is True
     assert len(oversized.stdout.encode()) <= 1024
+
+
+def test_bounded_process_interrupt_kills_descendant_process_group(
+    tmp_path, monkeypatch
+):
+    ready = tmp_path / "child-started"
+    descendant_marker = tmp_path / "descendant-survived"
+    child_code = (
+        "import time; from pathlib import Path; "
+        f"time.sleep(0.5); Path({str(descendant_marker)!r}).write_text('alive')"
+    )
+    parent_code = (
+        "import subprocess,sys,time; from pathlib import Path; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+        f"Path({str(ready)!r}).write_text('ready'); time.sleep(30)"
+    )
+    real_sleep = __import__("time").sleep
+    sleep_calls = 0
+
+    def interrupt_poll(_seconds):
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls == 1:
+            real_sleep(0.15)
+            return
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("react_recon.runtime.time.sleep", interrupt_poll)
+    with pytest.raises(KeyboardInterrupt):
+        run_bounded_process(
+            [sys.executable, "-c", parent_code],
+            timeout=5,
+            max_output_bytes=1024,
+        )
+
+    assert ready.exists()
+    real_sleep(0.6)
+    assert not descendant_marker.exists()
+
+
+def test_external_collectors_use_explicit_per_tool_timeouts(monkeypatch):
+    from react_recon.executor import Executor
+
+    executor = Executor(RunConfig("example.com", max_duration_seconds=1800))
+    observed = []
+    monkeypatch.setattr(
+        "react_recon.executor.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+
+    def run_command(command, timeout):
+        observed.append((Path(command[0]).name, timeout))
+        return BoundedProcessResult(0, "", "")
+
+    monkeypatch.setattr(executor, "_run_command", run_command)
+    result = executor.execute(
+        "retrieve_passive_urls", {"root_fqdn": "example.com"}
+    )
+
+    assert result.status == "success"
+    assert observed == [("gau", 120)]
+    assert executor.tool_timeout_seconds("discover_subdomains") == 180
+    assert executor.tool_timeout_seconds("generate_permutations") == 60
+    assert executor.tool_timeout_seconds("discover_ports") == 300
 
 
 def test_output_limited_docker_client_triggers_cid_cleanup(tmp_path, monkeypatch):

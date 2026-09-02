@@ -91,6 +91,11 @@ exports in one command. Run these examples from the repository root after
 loading `.env`. Replace the example values with the approved engagement scope
 before execution.
 
+Runs print immediate collector lifecycle and adaptive pacing updates to stderr.
+Each external collector has a fixed wall-clock timeout and runs in its own
+process group, which is terminated on timeout or operator cancellation. The
+final completion summary remains clean JSON on stdout.
+
 Start every operator session with:
 
 ```bash

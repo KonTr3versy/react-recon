@@ -283,6 +283,35 @@ def test_new_target_after_early_port_action_is_scanned_by_fallback(tmp_path: Pat
         store.close()
 
 
+def test_adaptive_actions_emit_bounded_pacing_progress(tmp_path: Path):
+    config = _config(tmp_path)
+    store = Store(config.database, config.evidence_dir)
+    executor = WorkflowExecutor(generate_permutation=True)
+    planner = CatalogPlanner(
+        ["discover_ports", "generate_permutations", "resolve_permutations"]
+    )
+    events = []
+    try:
+        ReconAgent(
+            store,
+            config,
+            executor=executor,
+            adaptive_planner=planner,
+            progress=events.append,
+        ).run()
+    finally:
+        store.close()
+
+    pacing = [event for event in events if event["event"] == "adaptive_progress"]
+    assert [event["completed"] for event in pacing] == [1, 2, 3]
+    assert all(event["total"] == 3 for event in pacing)
+    assert [event["tool"] for event in pacing] == [
+        "discover_ports",
+        "generate_permutations",
+        "resolve_permutations",
+    ]
+
+
 def test_candidate_ids_are_stable_opaque_and_tool_bound(tmp_path: Path):
     config = _config(tmp_path)
     store = Store(config.database, config.evidence_dir)

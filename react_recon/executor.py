@@ -68,6 +68,21 @@ class Executor:
         "retrieve_passive_urls": parse_gau,
     }
     BINARIES = ("subfinder", "dnsx", "httpx", "alterx", "naabu", "gau")
+    # A run may last up to max_duration_seconds, but no individual collector
+    # receives that complete budget. These fixed ceilings prevent one stalled
+    # dependency from making the controller appear hung indefinitely.
+    TOOL_TIMEOUT_SECONDS: Dict[str, int] = {
+        "crtsh_search": 100,
+        "discover_subdomains": 180,
+        "resolve_dns": 180,
+        "probe_http": 300,
+        "generate_permutations": 60,
+        "resolve_permutations": 180,
+        "probe_permutation_http": 300,
+        "discover_ports": 300,
+        "retrieve_passive_urls": 120,
+        "fingerprint_services": 300,
+    }
     # Docker Hub manifest-list digests checked against the published image
     # repositories on 2026-08-31. Digests are architecture-neutral and
     # immutable; host-installed tool versions are pinned separately.
@@ -158,14 +173,16 @@ class Executor:
             started = utc_now()
             start_time = time.monotonic()
             try:
-                completed = self._run_command(command, self.config.max_duration_seconds)
+                completed = self._run_command(command, self.tool_timeout_seconds(tool))
             except OSError as exc:
                 return ToolResult(tool, "failed", target, stderr=str(exc), command=" ".join(command), runner=runner)
 
             status = "success" if completed.returncode == 0 else "failed"
             if completed.timed_out:
                 status = "failed"
-                limitations.append("tool execution timed out")
+                limitations.append(
+                    f"tool execution timed out after {self.tool_timeout_seconds(tool)} seconds"
+                )
             if completed.output_limited:
                 status = "failed"
                 limitations.append(f"tool output exceeded {self.config.max_output_bytes} bytes")
@@ -222,6 +239,21 @@ class Executor:
     def _run_command(self, command: List[str], timeout: int) -> BoundedProcessResult:
         return run_bounded_process(command, timeout, self.config.max_output_bytes)
 
+    def tool_timeout_seconds(self, tool: str) -> int:
+        """Return the fixed tool ceiling clamped to the complete run budget."""
+        configured = self.TOOL_TIMEOUT_SECONDS.get(
+            tool, self.config.max_duration_seconds
+        )
+        return max(1, min(configured, self.config.max_duration_seconds))
+
+    @classmethod
+    def collector_name(cls, tool: str) -> str:
+        if tool == "crtsh_search":
+            return "crt.sh"
+        if tool == "fingerprint_services":
+            return "nmap"
+        return cls.COMMANDS.get(tool, tool)
+
     def _probe_http_bound(self, tool: str, approved: Dict[str, List[str]]) -> ToolResult:
         """Probe hosts in groups that share the exact same approved IP set.
 
@@ -261,8 +293,9 @@ class Executor:
         target_status = {host: "unattempted" for host in approved}
         target_output: Dict[str, Dict[str, int]] = {}
 
+        tool_timeout = self.tool_timeout_seconds(tool)
         for addresses, group_hosts in groups.items():
-            if time.monotonic() - started_monotonic >= self.config.max_duration_seconds:
+            if time.monotonic() - started_monotonic >= tool_timeout:
                 failed_groups += 1
                 limitations.append("HTTP probe duration budget exhausted")
                 break
@@ -290,7 +323,7 @@ class Executor:
                 commands.append(" ".join(command))
                 remaining = max(
                     1,
-                    self.config.max_duration_seconds
+                    tool_timeout
                     - int(time.monotonic() - started_monotonic),
                 )
                 try:
@@ -526,9 +559,10 @@ class Executor:
             for host, address, ports in normalized_targets
         }
         target_output: Dict[tuple[str, str, tuple[int, ...]], Dict[str, int]] = {}
+        tool_timeout = self.tool_timeout_seconds("fingerprint_services")
         for host, address, ports in normalized_targets:
             outcome_key = (host, address, tuple(ports))
-            if time.monotonic() - started_monotonic >= self.config.max_duration_seconds:
+            if time.monotonic() - started_monotonic >= tool_timeout:
                 break
             # -n and an explicit IP eliminate the prior DNS TOCTOU. -sT keeps
             # Docker fallback compatible with a cap-drop=ALL container.
@@ -538,7 +572,10 @@ class Executor:
             nmap_args.append(address)
             command = [str(nmap), *nmap_args] if nmap else self._docker_command(self.DOCKER_IMAGES["fingerprint_services"], ["nmap", *nmap_args], None, str(docker))
             commands.append(" ".join(command))
-            remaining = max(1, self.config.max_duration_seconds - int(time.monotonic() - started_monotonic))
+            remaining = max(
+                1,
+                tool_timeout - int(time.monotonic() - started_monotonic),
+            )
             try:
                 completed = self._run_command(command, remaining)
             except OSError as exc:

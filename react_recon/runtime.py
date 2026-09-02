@@ -68,17 +68,32 @@ def run_bounded_process(command: List[str], timeout: int, max_output_bytes: int)
             deadline = time.monotonic() + timeout
             timed_out = False
             output_limited = False
-            while process.poll() is None:
-                if stdout_file.tell() > max_output_bytes or stderr_file.tell() > max_output_bytes:
-                    output_limited = True
+            try:
+                while process.poll() is None:
+                    if stdout_file.tell() > max_output_bytes or stderr_file.tell() > max_output_bytes:
+                        output_limited = True
+                        _kill_process_group(process)
+                        break
+                    if time.monotonic() >= deadline:
+                        timed_out = True
+                        _kill_process_group(process)
+                        break
+                    time.sleep(0.01)
+                process.wait()
+            except BaseException:
+                # Collectors run in their own session, so terminal interrupts
+                # received by the controller do not automatically reach them.
+                # Always tear down that complete process group before allowing
+                # cancellation or another controller exception to propagate.
+                _kill_process_group(process)
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
                     _kill_process_group(process)
-                    break
-                if time.monotonic() >= deadline:
-                    timed_out = True
-                    _kill_process_group(process)
-                    break
-                time.sleep(0.01)
-            process.wait()
+                    process.wait()
+                if docker_cidfile is not None:
+                    _remove_docker_container(command[0], docker_cidfile)
+                raise
             # A short-lived child can finish between polling intervals. Re-check
             # the final stream sizes so a fast oversized response is still treated
             # as a failed, truncated execution rather than a successful result.

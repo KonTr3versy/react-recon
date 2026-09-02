@@ -138,6 +138,38 @@ def _run_report_directory(parent: str, root_fqdn: str, created_at: str) -> Path:
     return Path(parent) / f"{safe_domain}-{run_date}"
 
 
+def _emit_progress(event: dict[str, object]) -> None:
+    """Write parseable operator progress without contaminating stdout JSON."""
+    event_name = str(event.get("event", "progress"))
+    collector = str(event.get("collector") or event.get("tool") or "run")
+    if event_name == "tool_started":
+        message = f"{collector}: started"
+    elif event_name == "tool_completed":
+        message = f"{collector}: completed"
+    elif event_name == "adaptive_progress":
+        message = (
+            f"active pacing: {event.get('completed')}/{event.get('total')}"
+        )
+    elif event_name == "tool_interrupted":
+        message = f"{collector}: interrupted"
+    elif event_name == "tool_failed":
+        message = f"{collector}: failed"
+    elif event_name == "run_interrupted":
+        message = "run: interrupted"
+    else:
+        message = event_name.replace("_", " ")
+    details = " ".join(
+        f"{key}={value}"
+        for key, value in event.items()
+        if key not in {"event", "collector"}
+    )
+    print(
+        f"[react-recon] {message}" + (f" | {details}" if details else ""),
+        file=os.sys.stderr,
+        flush=True,
+    )
+
+
 def _binary_version(binary: str) -> Optional[str]:
     path = shutil.which(binary)
     if not path:
@@ -233,7 +265,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         store = Store(config.database, config.evidence_dir)
         try:
-            run_id = ReconAgent(store, config).run()
+            run_id = ReconAgent(store, config, progress=_emit_progress).run()
             if args.collection_only:
                 print(run_id)
                 return 0
@@ -282,7 +314,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             except ValueError as exc:
                 print(f"error: cannot resume {args.run_id}: {exc}", file=os.sys.stderr)
                 return 2
-            print(ReconAgent(store, config).run(args.run_id))
+            print(
+                ReconAgent(store, config, progress=_emit_progress).run(args.run_id)
+            )
             return 0
         finally:
             store.close()

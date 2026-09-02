@@ -72,6 +72,23 @@ The command prints a JSON completion summary containing the run ID, analysis
 ID, report directory, and both report paths. Passive URL candidates are
 recorded but not fetched automatically.
 
+Collector lifecycle and adaptive-action progress are emitted immediately to
+stderr, leaving the final stdout JSON machine-readable. A normal run includes
+messages such as:
+
+```text
+[react-recon] gau: started | phase=baseline tool=retrieve_passive_urls timeout_seconds=120
+[react-recon] gau: completed | phase=baseline tool=retrieve_passive_urls status=success duration_seconds=18.421 observations=42 timed_out=False
+[react-recon] active pacing: 2/3 | phase=adaptive completed=2 total=3 tool=discover_ports status=success
+```
+
+Every external collector runs in a dedicated process group. Cancellation,
+output-limit enforcement, and timeout enforcement terminate the collector and
+its descendants. The fixed default ceilings are 60 seconds for AlterX, 120
+seconds for gau, 180 seconds for Subfinder and dnsx, and 300 seconds for httpx,
+Naabu, and Nmap. A smaller `--max-duration-seconds` value also clamps each
+collector timeout.
+
 httpx probes both HTTP and HTTPS for every DNS-resolved in-scope hostname. The
 report places confirmed responding endpoints in a dedicated inventory and
 orders successful 2xx, access-controlled 401/403/407, and redirecting 3xx

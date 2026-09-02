@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from .coverage import ACTIVE_EXPANSION, PASSIVE_BASELINE, CoveragePlanner, build_coverage
 from .executor import Executor
@@ -46,6 +46,7 @@ class ReconAgent:
         planner: Any = None,
         executor: Any = None,
         adaptive_planner: Any = None,
+        progress: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         config.validate()
         self.store = store
@@ -55,6 +56,7 @@ class ReconAgent:
         self.custom_planner = planner
         self.executor = executor or Executor(config)
         self._adaptive_planner = adaptive_planner
+        self._progress = progress or (lambda event: None)
 
     def run(self, run_id: Optional[str] = None) -> str:
         run_id = run_id or self.store.create_run(self.config)
@@ -96,10 +98,15 @@ class ReconAgent:
 
             self._finish_completed_run(run_id)
             return run_id
+        except KeyboardInterrupt:
+            self.store.finish_run(run_id, "stopped")
+            self._emit_progress("run_interrupted", run_id=run_id)
+            raise
         except Exception:
             # Keep failure state durable so the operator can inspect evidence
             # and resume rather than losing the last controller state.
             self.store.finish_run(run_id, "failed")
+            self._emit_progress("run_failed", run_id=run_id)
             raise
 
     def _run_coverage_phase(
@@ -246,6 +253,14 @@ class ReconAgent:
             elif not self._within_run_budget(calls, started):
                 progress["stop_reason"] = "run_budget_exhausted"
             self.store.update_task_progress(task_id, progress)
+            self._emit_progress(
+                "adaptive_progress",
+                phase="adaptive",
+                completed=action_count,
+                total=self.config.max_adaptive_actions,
+                tool=adaptive.tool,
+                status=result.status,
+            )
             if progress.get("stop_reason"):
                 break
         return calls
@@ -290,6 +305,28 @@ class ReconAgent:
             phase=phase,
             decision=decision_record,
         )
+        collector = Executor.collector_name(decision.tool)
+        timeout_seconds = (
+            self.executor.tool_timeout_seconds(decision.tool)
+            if hasattr(self.executor, "tool_timeout_seconds")
+            else max(
+                1,
+                min(
+                    Executor.TOOL_TIMEOUT_SECONDS.get(
+                        decision.tool, self.config.max_duration_seconds
+                    ),
+                    self.config.max_duration_seconds,
+                ),
+            )
+        )
+        execution_started = time.monotonic()
+        self._emit_progress(
+            "tool_started",
+            phase=phase,
+            tool=decision.tool,
+            collector=collector,
+            timeout_seconds=timeout_seconds,
+        )
         try:
             result: ToolResult = self.executor.execute(decision.tool, arguments)
             self.store.record_result(run_id, result)
@@ -303,10 +340,32 @@ class ReconAgent:
                 else "failed",
                 progress=coverage_progress,
             )
+            self._emit_progress(
+                "tool_completed",
+                phase=phase,
+                tool=decision.tool,
+                collector=collector,
+                status=result.status,
+                duration_seconds=round(time.monotonic() - execution_started, 3),
+                observations=len(result.observations),
+                timed_out=any("timed out" in item for item in result.limitations),
+            )
             return task_id, result
-        except Exception:
+        except BaseException as exc:
             self.store.complete_task(task_id, "failed")
+            self._emit_progress(
+                "tool_interrupted"
+                if isinstance(exc, KeyboardInterrupt)
+                else "tool_failed",
+                phase=phase,
+                tool=decision.tool,
+                collector=collector,
+                duration_seconds=round(time.monotonic() - execution_started, 3),
+            )
             raise
+
+    def _emit_progress(self, event: str, **details: Any) -> None:
+        self._progress({"event": event, **details})
 
     @staticmethod
     def _target_coverage_progress(
